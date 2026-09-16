@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3559a6">
+  <title>Still Awake? — Backend Lab</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="hero">
+    <div>
+      <h1>Still Awake? — Backend Lab</h1>
+      <p>Локальная лаборатория: AI settings → chat API → analytics → SQLite/admin.</p>
+    </div>
+    <span id="health" class="pill">backend…</span>
+  </header>
+
+  <main>
+    <section class="view active" id="view-ai">
+      <div class="section-title">
+        <div><h2>AI настройки</h2><small>LM Studio / OpenAI-compatible provider</small></div>
+      </div>
+
+      <div class="card">
+        <div class="row between"><h3>Состояние сервисов</h3><button class="btn mini" id="checkServices">Проверить всё</button></div>
+        <div class="service-grid">
+          <div class="service-card"><span>Backend</span><strong id="backendStatus">проверка…</strong><a id="backendUrl" class="service-link" href="/" target="_blank" rel="noopener">—</a></div>
+          <div class="service-card"><span>LLM server</span><strong id="providerHealth">не проверен</strong><code id="providerHealthUrl">—</code></div>
+          <div class="service-card"><span>Selected model</span><strong id="modelHealth">не проверена</strong><code id="modelHealthName">—</code><small id="modelHealthMeta"></small></div>
+        </div>
+        <p class="tiny">Для LM Studio используется native <code>/api/v1/models</code>, поэтому при поддержке API видно не только доступность сервера, но и загружена ли выбранная модель и какой у неё текущий context length.</p>
+      </div>
+
+      <div class="card">
+        <div class="notice"><b>Секретный API token не сохраняется</b> в localStorage или SQLite. Он живёт только в текущей вкладке и уходит Go-backend только на время запроса.</div>
+        <div class="grid2">
+          <div>
+            <label>Provider mode
+              <select id="providerMode">
+                <option value="openai_compatible">OpenAI-compatible (LM Studio)</option>
+                <option value="mock">Mock — без модели</option>
+              </select>
+            </label>
+            <label>Base URL<input id="providerBaseUrl" value="http://127.0.0.1:1234" inputmode="url"></label>
+            <label>Chat path<input id="providerPath" value="/v1/chat/completions"></label>
+            <label>Model ID
+              <input id="providerModel" list="modelOptions" placeholder="нажми «Получить модели»">
+              <datalist id="modelOptions"></datalist>
+            </label>
+            <label>LM Studio API token<input id="providerApiKey" type="password" autocomplete="off" placeholder="sk-lm-... (если Require Authentication включён)"></label>
+          </div>
+          <div>
+            <label>Temperature<input id="temperature" type="number" value="0.8" step="0.1" min="0" max="2"></label>
+            <label>System prompt<textarea id="systemPrompt" rows="11">Ты играешь неизвестного человека в психологическом хорроре Still Awake?. Всегда отвечай на русском. Не выходи из роли. Пиши кратко и естественно. Не придумывай физические события и факты мира, которых нет в GAME_STATE. Игровое состояние меняет только сервер игры.</textarea></label>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" id="loadModels">Получить модели</button>
+          <button class="btn" id="saveAISettings">Сохранить несекретные настройки</button>
+          <button class="btn" id="resetAISettings">Сбросить</button>
+        </div>
+        <pre id="providerStatus" class="output compact">—</pre>
+      </div>
+
+      <div class="card soft">
+        <h3>Режим запроса</h3>
+        <label>Conversation / request mode
+          <select id="requestMode">
+            <option value="backend_history">Backend history — SQLite + последние сообщения (сейчас работает)</option>
+            <option value="stateless" disabled>Stateless single turn — позже</option>
+            <option value="lmstudio_stateful" disabled>LM Studio Stateful / previous_response_id — позже</option>
+          </select>
+        </label>
+        <label>Сколько последних сообщений добавлять в prompt<input id="historyLimit" type="number" min="1" max="100" value="30"></label>
+        <p class="tiny">В режиме backend history браузер отправляет только <code>history_limit</code>. Сами прошлые сообщения backend достаёт из SQLite и уже затем собирает реальный <code>messages[]</code> для модели.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-chat">
+      <div class="section-title">
+        <div><h2>Chat / Game API</h2><small>одна игровая сессия, история в SQLite</small></div>
+      </div>
+
+      <div class="card">
+        <h3>Идентичность клиента</h3>
+        <div class="grid3">
+          <label>Installation / User ID<input id="installationId" placeholder="inst_..."></label>
+          <label>Session ID<input id="sessionId" placeholder="sess_..."></label>
+          <label>Game version<input id="gameVersion" value="0.1.0-dev"></label>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" id="initClient">Создать installation + session</button>
+          <button class="btn" id="createInstallation">Новый installation ID</button>
+          <button class="btn" id="createSession">Новая session</button>
+        </div>
+        <div class="identity-line"><span>installation</span><code id="identityInstallation">—</code><span>session</span><code id="identitySession">—</code></div>
+      </div>
+
+      <div class="chat-layout">
+        <div class="card chat-card">
+          <div class="chat-head"><h3>Диалог</h3><button class="btn mini" id="loadHistory">Обновить</button></div>
+          <div id="chatTranscript" class="transcript"><div class="empty">Создай session и отправь сообщение.</div></div>
+          <label>Сообщение игрока<textarea id="userMessage" rows="3" placeholder="Кто ты и откуда у тебя мой номер?"></textarea></label>
+          <button class="btn primary send-btn" id="sendMessage">Отправить в backend</button>
+        </div>
+
+        <div class="card context-card">
+          <h3>Контекст игры</h3>
+          <label>Game state JSON<textarea id="gameState" rows="10">{
+  "phase": 1,
+  "light_on": true,
+  "noise": 0,
+  "player_hidden": false,
+  "window_open": false
+}</textarea></label>
+          <label>Extra context JSON<textarea id="extraContext" rows="5">{}</textarea></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="metrics" id="lastMetrics">
+          <div><strong>—</strong><span>input tokens</span></div>
+          <div><strong>—</strong><span>output tokens</span></div>
+          <div><strong>—</strong><span>latency</span></div>
+          <div><strong>—</strong><span>tok/s</span></div>
+        </div>
+        <details open>
+          <summary>Request / prompt debug</summary>
+          <p class="tiny">Сверху — body от браузера к backend. Ниже — <b>фактический messages[]</b>, который backend собирает после чтения последних сообщений из SQLite. API key в preview специально не показывается.</p>
+          <div class="grid2 debug-grid">
+            <div>
+              <h3>Client → backend</h3>
+              <textarea id="rawRequest" rows="16"></textarea>
+              <div class="btn-row">
+                <button class="btn" id="buildRequest">Пересобрать + preview</button>
+                <button class="btn" id="sendRaw">Отправить raw JSON</button>
+              </div>
+            </div>
+            <div>
+              <div class="row between"><h3>Backend → model</h3><span id="historyDebugBadge" class="pill">history: —</span></div>
+              <pre id="resolvedPrompt" class="output prompt-output">Создай session, затем нажми «Пересобрать + preview».</pre>
+            </div>
+          </div>
+        </details>
+        <h3>Последний ответ backend</h3>
+        <pre id="response" class="output">—</pre>
+      </div>
+    </section>
+
+    <section class="view" id="view-analytics">
+      <div class="section-title">
+        <div><h2>Analytics</h2><small>отдельный read-only токен</small></div>
+      </div>
+      <div class="card analytics-auth">
+        <label>ANALYTICS_TOKEN<input id="analyticsToken" type="password" autocomplete="off" placeholder="из .env"></label>
+        <label>Период
+          <select id="analyticsDays">
+            <option value="1">24 часа</option>
+            <option value="7" selected>7 дней</option>
+            <option value="30">30 дней</option>
+            <option value="0">всё время</option>
+          </select>
+        </label>
+        <button class="btn primary" id="refreshAnalytics">Обновить аналитику</button>
+      </div>
+      <div id="analyticsSummary" class="analytics-stats"></div>
+      <div class="analytics-grid">
+        <div class="card"><h3>Запросы по дням</h3><div id="analyticsDaily" class="analytics-list">—</div></div>
+        <div class="card"><h3>Модели</h3><div id="analyticsModels" class="analytics-list">—</div></div>
+      </div>
+      <div class="card">
+        <h3>Пользователи / installations</h3>
+        <p class="tiny">Полезно для понимания, кто чаще всего вызывает LLM, сколько токенов расходует и сколько сессий создаёт.</p>
+        <div id="analyticsUsers" class="analytics-list">—</div>
+      </div>
+    </section>
+
+    <section class="view" id="view-admin">
+      <div class="section-title">
+        <div><h2>Admin / SQLite</h2><small>dev inspector + linked requests + SQL console</small></div>
+      </div>
+
+      <div class="card admin-auth-card">
+        <label>ADMIN_TOKEN<input id="adminToken" type="password" autocomplete="off" placeholder="из .env"></label>
+        <button class="btn primary" id="refreshAdmin">Обновить админку</button>
+      </div>
+
+      <div class="card search-card">
+        <label>Поиск по User / Installation ID или Session ID
+          <input id="adminSearch" type="search" placeholder="inst_... или sess_...">
+        </label>
+        <div class="btn-row"><button class="btn primary" id="runAdminSearch">Найти</button><button class="btn" id="clearAdminSearch">Сбросить</button></div>
+      </div>
+
+      <div id="overview" class="stats-grid"></div>
+
+      <details class="card" open>
+        <summary><b>Installations / Sessions</b></summary>
+        <div class="admin-grid">
+          <div><h3>Installations / Users</h3><div id="installations" class="listbox">—</div></div>
+          <div><h3>Sessions</h3><div id="sessions" class="listbox">—</div></div>
+        </div>
+      </details>
+
+      <section id="installationInspector" class="card hidden">
+        <div class="row between"><h3>User <code id="selectedInstallationId"></code></h3><button class="btn mini" id="reloadSelectedInstallation">Reload</button></div>
+        <div class="admin-grid detail-grid">
+          <div><h3>Все sessions пользователя</h3><div id="userSessions" class="listbox tall">—</div></div>
+          <div><h3>Все LLM requests пользователя</h3><div id="userLLMRequests" class="listbox tall">—</div></div>
+        </div>
+      </section>
+
+      <section id="sessionInspector" class="card hidden">
+        <div class="row between"><h3>Session <code id="selectedSessionId"></code></h3><button class="btn mini" id="reloadSelectedSession">Reload</button></div>
+        <div class="grid2">
+          <div>
+            <label>User / installation<input id="adminSessionInstallation" readonly></label>
+            <label>Game version<input id="adminGameVersion"></label>
+            <label>Scenario<input id="adminScenario"></label>
+          </div>
+          <label>State JSON<textarea id="adminSessionState" rows="8"></textarea></label>
+        </div>
+        <div class="btn-row"><button class="btn primary" id="saveSession">Save session</button><button class="btn danger" id="deleteSelectedSession">Delete session</button></div>
+        <div class="admin-grid detail-grid">
+          <div><h3>Messages</h3><div id="adminMessages" class="listbox tall">—</div></div>
+          <div><h3>Events</h3><div id="adminEvents" class="listbox tall">—</div></div>
+        </div>
+        <h3>Linked LLM requests этой session</h3>
+        <div id="sessionLLMRequests" class="listbox tall">—</div>
+      </section>
+
+      <details class="card" open>
+        <summary><b>Все LLM requests</b></summary>
+        <p class="tiny">Каждая запись связывает User ID → Session ID → сообщение игрока → фактический prompt → ответ модели.</p>
+        <div id="llmRequests" class="listbox tall">—</div>
+      </details>
+
+      <details class="card" open>
+        <summary><b>SQL Console</b></summary>
+        <div class="notice warn"><b>Dev-only:</b> SQL идёт прямо в SQLite. Изменяющие запросы дополнительно требуют <code>ADMIN_ALLOW_SQL_WRITES=true</code> и чекбокс ниже.</div>
+        <div class="sql-grid">
+          <div>
+            <label>SQL<textarea id="sqlQuery" rows="10">SELECT id, installation_id, session_id, model, prompt_tokens, completion_tokens, latency_ms, status, created_at
+FROM llm_requests
+ORDER BY id DESC
+LIMIT 50;</textarea></label>
+            <label class="check"><input id="allowWriteSQL" type="checkbox"> Разрешить изменяющий SQL для этого запроса</label>
+            <div class="btn-row">
+              <button class="btn primary" id="runSQL">Выполнить SQL</button>
+              <button class="btn" id="loadSchema">Обновить schema</button>
+            </div>
+          </div>
+          <div>
+            <h3>Schema</h3>
+            <div id="dbSchema" class="schema-box">—</div>
+          </div>
+        </div>
+        <h3>SQL result</h3>
+        <div id="sqlResult" class="sql-result">—</div>
+      </details>
+    </section>
+  </main>
+</div>
+
+<nav class="bottom-nav"><div class="nav-inner">
+  <button class="nav-btn active" data-view="ai"><b>⚙</b>AI</button>
+  <button class="nav-btn" data-view="chat"><b>✦</b>Chat</button>
+  <button class="nav-btn" data-view="analytics"><b>⌁</b>Analytics</button>
+  <button class="nav-btn" data-view="admin"><b>▤</b>Admin</button>
+</div></nav>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>

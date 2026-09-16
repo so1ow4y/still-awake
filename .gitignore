@@ -1,0 +1,16 @@
+.env
+*.db
+*.sqlite
+*.gguf
+*.safetensors
+
+Library/
+Temp/
+Obj/
+Build/
+Logs/
+
+*.exe
+.vs/
+.idea/
+.vscode/

@@ -37,6 +37,8 @@ namespace StillAwake
                 case RoomContent.WindowGlass:
                     actions.Add(new RoomAction("Посмотреть в окно", LookOutside));
                     if (ctx.RoomView.IsAuthored) actions.Add(new RoomAction(Room.CurtainsClosed ? "Раздвинуть шторы" : "Задёрнуть шторы", ToggleCurtains));
+                    actions.Add(BreakGlass("Разбить стекло", 40f,
+                        "Локоть в рукаве — в стекло. Звон на весь дом. Я выбрала самый длинный осколок и обмотала его край тканью."));
                     break;
                 case RoomContent.CurtainLeft:
                 case RoomContent.CurtainRight:
@@ -87,6 +89,8 @@ namespace StillAwake
                     break;
                 case RoomContent.Mirror:
                     actions.Add(new RoomAction("Посмотреть в зеркало", LookInMirror));
+                    actions.Add(BreakGlass("Разбить зеркало", 30f,
+                        "Зеркало треснуло паутиной и осыпалось. Семь лет несчастий — если доживу. Осколок тяжёлый и острый."));
                     break;
                 case RoomContent.Fridge:
                     actions.Add(new RoomAction("Открыть холодильник", OpenFridge));
@@ -174,15 +178,40 @@ namespace StillAwake
             return Room.DoorLocked ? "Ключ дважды провернулся в замке. Заперто." : "Замок открыт.";
         }
 
+        /// <summary>Глазок открывает отдельный вид (Views/peephole.png): коридор, а если он у двери — он сам.</summary>
         string LookThroughPeephole()
         {
+            string thought;
             if (Stalker.Node == StalkerNode.Door)
             {
                 Stalker.AddAttention(10f);
-                return "В глазке — тёмная фигура вплотную к двери.";
+                thought = "В глазке — тёмная фигура вплотную к двери. Он смотрит прямо в линзу.";
             }
-            return "Пустой коридор. Лампочка мигает.";
+            else
+            {
+                thought = "Пустой коридор. Лампочка мигает.";
+            }
+            ctx.Menu.Close();
+            ctx.Hud.ShowPeephole(true, thought);
+            RefreshInputLocks();
+            return null;
         }
+
+        /// <summary>Разбить стекло и взять осколок: громко, но с ним в шкафу он её уже не возьмёт.</summary>
+        RoomAction BreakGlass(string title, float noise, string thought) =>
+            new RoomAction(title, () =>
+            {
+                if (Room.GlassBroken || ctx.Inventory.Has(ItemCatalog.Shard)) return "Осколок у меня уже есть. Хватит битого стекла.";
+                if (!ctx.Inventory.Add(ItemCatalog.Shard)) return "Инвентарь заполнен — некуда взять осколок.";
+
+                Room.GlassBroken = true;
+                Sfx.Knock();
+                MakeNoise(noise);
+                Stalker.AddAttention(noise * 0.5f);
+                ctx.Hud.ShowToast("Получено: " + ItemCatalog.Get(ItemCatalog.Shard).Title);
+                Track("glass_broken", ("noise", noise));
+                return thought;
+            });
 
         string ToggleLight()
         {
@@ -245,6 +274,10 @@ namespace StillAwake
 
                 case ItemCatalog.Powerbank:
                     result = "Заряд 100%. Пригодится, если отключат электричество. (заглушка)";
+                    break;
+
+                case ItemCatalog.Shard:
+                    result = "Если он откроет шкаф — я ударю первой.";
                     break;
 
                 default:

@@ -41,22 +41,6 @@ func TestHashAndVerify(t *testing.T) {
 }
 
 func TestNormalize(t *testing.T) {
-	phones := map[string]string{
-		"+7 (900) 123-45-67": "+79001234567",
-		"8 900 123 45 67":    "+79001234567",
-		"+44 20 7946 0958":   "+442079460958",
-	}
-	for in, want := range phones {
-		got, err := NormalizePhone(in)
-		if err != nil || got != want {
-			t.Errorf("NormalizePhone(%q) = %q, %v; want %q", in, got, err, want)
-		}
-	}
-	for _, bad := range []string{"12345", "+7 900 abc", "7+9001234567"} {
-		if _, err := NormalizePhone(bad); err == nil {
-			t.Errorf("NormalizePhone(%q) принял неверный номер", bad)
-		}
-	}
 	for _, ok := range []string{"admin", "Ivan.Petrov", "a_b-c"} {
 		if _, err := NormalizeUsername(ok); err != nil {
 			t.Errorf("NormalizeUsername(%q): %v", ok, err)

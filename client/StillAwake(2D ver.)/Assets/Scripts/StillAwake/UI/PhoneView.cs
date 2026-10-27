@@ -48,6 +48,8 @@ namespace StillAwake
             handle.gameObject.activeSelf && RectTransformUtility.RectangleContainsScreenPoint(handle, GameInput.PointerPosition, null);
         /// <summary>Печатают в мессенджере или заметках — клавиши игры не срабатывают.</summary>
         public bool Typing => messenger.InputFocused || notes.InputFocused;
+        /// <summary>Игрок набирает сообщение незнакомцу (или только что набирал).</summary>
+        public bool PlayerComposing => messenger.Visible && messenger.Composing;
 
         public event Action<bool> OpenChanged;
         public event Action<int> ReplyChosen;
@@ -55,6 +57,10 @@ namespace StillAwake
         public event Action<string> MessageSubmitted;
         /// <summary>Набрали номер и нажали «Вызов».</summary>
         public event Action<string> CallStarted;
+        /// <summary>Диспетчер службы спасения принял вызов: помощь приедет к 6 утра.</summary>
+        public event Action RescueRequested;
+        /// <summary>Диспетчер решил, что это розыгрыш: никто не приедет.</summary>
+        public event Action RescueRefused;
 
         Phone phone;
         RectTransform canvas, body, handle, home, apps, banner, peekCatcher;
@@ -64,6 +70,8 @@ namespace StillAwake
         DialerApp dialer;
         CalculatorApp calculator;
         NotesApp notes;
+        SettingsApp settingsApp;
+        Text signal;
         PhoneApp[] allApps;
         float slideVelocity, bannerTimer;
         int lastCount;
@@ -86,11 +94,42 @@ namespace StillAwake
         public void Close() => SetMode(Mode == PhoneMode.Hidden ? PhoneMode.Hidden : PhoneMode.Peek);
         public void Toggle() => SetMode(Mode == PhoneMode.Full ? PhoneMode.Peek : PhoneMode.Full);
         public void ToggleHidden() => SetMode(Mode == PhoneMode.Hidden ? PhoneMode.Peek : PhoneMode.Hidden);
+        /// <summary>Опустить до четверти (торчит снизу), а если уже опущен или спрятан — достать целиком.</summary>
+        public void TogglePeek() => SetMode(Mode == PhoneMode.Full ? PhoneMode.Peek : PhoneMode.Full);
+
+        /// <summary>
+        /// Esc, пока телефон в руке: из чата — к списку, из приложения — на рабочий стол. false — уже на рабочем
+        /// столе, шагать некуда: тогда Esc ставит паузу, а телефон остаётся в руке.
+        /// </summary>
+        public bool Back()
+        {
+            if (messenger.Visible && messenger.Back()) return true;
+            foreach (PhoneApp app in allApps)
+            {
+                if (!app.Visible) continue;
+                GoHome();
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Кнопка «домой» внизу экрана: из приложения — на рабочий стол, с рабочего стола — опустить до четверти.</summary>
+        void HomeButton()
+        {
+            foreach (PhoneApp app in allApps)
+            {
+                if (!app.Visible) continue;
+                GoHome();
+                return;
+            }
+            SetMode(PhoneMode.Peek);
+        }
 
         /// <summary>Открыть мессенджер (с уведомления или из кода).</summary>
         public void OpenMessenger()
         {
             ShowApp(messenger);
+            messenger.OpenChat(phone.Stalker);
             SetMode(PhoneMode.Full);
         }
 
@@ -108,7 +147,7 @@ namespace StillAwake
             bool wasOpen = IsOpen;
             Mode = mode;
             if (mode != PhoneMode.Full && Typing) EventSystemDeselect();
-            if (mode == PhoneMode.Full && messenger.Visible) phone.MarkRead();
+            if (mode == PhoneMode.Full && messenger.Visible) phone.MarkRead(messenger.Current);
             peekCatcher.gameObject.SetActive(mode == PhoneMode.Peek);
             handle.gameObject.SetActive(mode == PhoneMode.Hidden);
             if (instant) body.anchoredPosition = new Vector2(body.anchoredPosition.x, TargetY);
@@ -145,22 +184,23 @@ namespace StillAwake
             clock = Ui.Text("Clock", screen.transform, "00:00", 16, Color.white, TextAnchor.MiddleLeft, FontStyle.Bold);
             Ui.Place(clock.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, 0f), new Vector2(120f, StatusHeight));
             clock.rectTransform.pivot = new Vector2(0f, 1f);
-            Text signal = Ui.Text("Signal", screen.transform, "LTE  73%", 14, Color.white, TextAnchor.MiddleRight);
-            Ui.Place(signal.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, 0f), new Vector2(160f, StatusHeight));
+            signal = Ui.Text("Signal", screen.transform, "LTE  73%", 14, Color.white, TextAnchor.MiddleRight);
+            Ui.Place(signal.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-16f, 0f), new Vector2(240f, StatusHeight));
 
             RectTransform content = Ui.Node("Content", screen.transform);
             Ui.Stretch(content, 0f, HomeBarHeight, 0f, StatusHeight);
 
             home = BuildHome(content);
             apps = Ui.Stretch(Ui.Node("Apps", content));
-            messenger = new MessengerApp(apps, phone, GoHome, index => ReplyChosen?.Invoke(index), text => MessageSubmitted?.Invoke(text));
-            dialer = new DialerApp(apps, GoHome, number => CallStarted?.Invoke(number));
+            messenger = new MessengerApp(apps, phone, GoHome, index => ReplyChosen?.Invoke(index), text => MessageSubmitted?.Invoke(text), () => clock.text);
+            dialer = new DialerApp(apps, GoHome, number => CallStarted?.Invoke(number), () => RescueRequested?.Invoke(), () => RescueRefused?.Invoke());
             calculator = new CalculatorApp(apps, GoHome);
             notes = new NotesApp(apps, GoHome);
-            allApps = new PhoneApp[] { messenger, dialer, calculator, notes };
+            settingsApp = new SettingsApp(apps, phone, GoHome);
+            allApps = new PhoneApp[] { messenger, dialer, calculator, notes, settingsApp };
 
             // Полоска «домой» внизу экрана.
-            Button homeBar = Ui.Button("Home bar", screen.transform, "", GoHome, 12, new Color(1f, 1f, 1f, 0f));
+            Button homeBar = Ui.Button("Home bar", screen.transform, "", HomeButton, 12, new Color(1f, 1f, 1f, 0f));
             Ui.Place((RectTransform)homeBar.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), Vector2.zero, new Vector2(200f, HomeBarHeight));
             Image line = Ui.Image("Line", homeBar.transform, new Color(1f, 1f, 1f, 0.7f));
             Ui.Place(line.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(110f, 5f));
@@ -182,8 +222,8 @@ namespace StillAwake
             // Пока телефон торчит снизу, клик по нему открывает его целиком.
             Button catcher = Ui.Button("Peek catcher", body, "", () =>
             {
-                if (phone.Unread > 0) ShowApp(messenger);
-                Open();
+                if (phone.Stalker.Unread > 0) OpenMessenger();
+                else Open();
             }, 12, new Color(1f, 1f, 1f, 0f));
             peekCatcher = (RectTransform)catcher.transform;
             peekCatcher.anchorMin = new Vector2(0f, 0.75f);
@@ -215,6 +255,11 @@ namespace StillAwake
             AppIcon(row, 1, "Телефон", "#", new Color(0.18f, 0.7f, 0.35f), () => ShowApp(dialer));
             AppIcon(row, 2, "Калькулятор", "±", new Color(0.95f, 0.55f, 0.1f), () => ShowApp(calculator));
             AppIcon(row, 3, "Заметки", "≡", new Color(0.95f, 0.8f, 0.2f), () => ShowApp(notes));
+
+            // Второй ряд — над первым.
+            RectTransform row2 = Ui.Node("Apps row 2", page);
+            Ui.Place(row2, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 150f), new Vector2(380f, 110f));
+            AppIcon(row2, 0, "Настройки", "⚙", new Color(0.45f, 0.47f, 0.52f), () => ShowApp(settingsApp));
             return page;
         }
 
@@ -254,7 +299,12 @@ namespace StillAwake
 
         void Refresh()
         {
-            if (Mode == PhoneMode.Full && messenger.Visible) phone.MarkRead();
+            if (Mode == PhoneMode.Full && messenger.Visible) phone.MarkRead(messenger.Current);
+
+            // Режим звука виден в статус-баре: «без звука» / «вибро».
+            string ring = phone.Ring == RingMode.Silent ? "<color=#ff8a80>без звука</color>   "
+                : phone.Ring == RingMode.Vibrate ? "вибро   " : "";
+            signal.text = ring + "LTE  73%";
 
             bool unread = phone.Unread > 0;
             messagesBadgeObject.SetActive(unread);
@@ -287,6 +337,8 @@ namespace StillAwake
         void Update()
         {
             float dt = Time.unscaledDeltaTime;
+            // Семья «читает» сообщения по игровому времени: на паузе таймеры стоят.
+            phone.Tick(Time.deltaTime, clock.text);
             float y = Mathf.SmoothDamp(body.anchoredPosition.y, TargetY, ref slideVelocity, SlideSmoothTime, Mathf.Infinity, dt);
             body.anchoredPosition = new Vector2(body.anchoredPosition.x, y);
 

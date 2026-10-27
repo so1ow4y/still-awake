@@ -12,10 +12,22 @@ namespace StillAwake
     public sealed class PlayerInfo
     {
         public string id;
+        public string username;
         public string display_name;
-        public string phone;
         public string installation_id;
         public string created_at;
+    }
+
+    /// <summary>Чем кончился вход или регистрация.</summary>
+    public enum AuthResult
+    {
+        Ok,
+        /// <summary>Сервер ответил «нет»: неверный логин или пароль, логин занят, аккаунт заблокирован.</summary>
+        Rejected,
+        /// <summary>Сервер не отвечает — проверить нельзя.</summary>
+        Offline,
+        /// <summary>Другая ошибка сервера.</summary>
+        Error,
     }
 
     /// <summary>
@@ -42,7 +54,8 @@ namespace StillAwake
     [Serializable]
     sealed class RegisterRequest
     {
-        public string phone;
+        public string username;
+        public string password;
         public string display_name;
         public string installation_id;
         public string game_version;
@@ -55,6 +68,22 @@ namespace StillAwake
         public string token;
         public bool created;
         public PlayerInfo user;
+    }
+
+    [Serializable]
+    sealed class LoginRequest
+    {
+        public string username;
+        public string password;
+        public string game_version;
+        public string platform;
+    }
+
+    [Serializable]
+    sealed class PasswordRequest
+    {
+        public string current_password;
+        public string new_password;
     }
 
     [Serializable]
@@ -107,7 +136,7 @@ namespace StillAwake
 
     /// <summary>
     /// Связь игры с backend: игра сама входит по ключу установки (игроку ничего вводить не нужно), открывает
-    /// сессию на ночь, шлёт её события и переписку с моделью. Без сервера или с выключенным ИИ сообщения пишет
+    /// сессию на ночь, шлёт её события и переписку с моделью. Вход — логином и паролем игрока (AccountFile). Без сервера или с выключенным ИИ сообщения пишет
     /// скрипт. Один объект на всю игру (DontDestroyOnLoad), чтобы запросы не обрывались при смене сцены.
     /// </summary>
     public sealed class BackendClient : MonoBehaviour
@@ -131,7 +160,10 @@ namespace StillAwake
             }
         }
 
-        /// <summary>Ключ этой установки игры: по нему сервер узнаёт игрока. Создаётся при первом запуске.</summary>
+        /// <summary>
+        /// Ключ этой установки игры: уходит при регистрации, чтобы сервер записал платформу и версию. Аккаунтом
+        /// не является — войти можно только логином и паролем.
+        /// </summary>
         public static string InstallationId
         {
             get
@@ -206,7 +238,12 @@ namespace StillAwake
                 DefaultTimeoutSeconds, NormalizeUrl(server)));
         }
 
-        /// <summary>Войти, если ещё не вошли: по ключу установки, без участия игрока. done(ok, ошибка).</summary>
+        /// <summary>
+        /// Вход проверен в этом запуске (экран входа пройден или выбрана игра без сервера) — меню больше не спрашивает.
+        /// </summary>
+        public static bool SessionChecked { get; set; }
+
+        /// <summary>Войти, если ещё не вошли: логином и паролем из файла аккаунта. Файла нет — нужен экран входа.</summary>
         public void EnsureAccount(Action<bool, string> done) => StartCoroutine(EnsureAccountRoutine(done));
 
         IEnumerator EnsureAccountRoutine(Action<bool, string> done)
@@ -216,25 +253,91 @@ namespace StillAwake
                 done(true, null);
                 yield break;
             }
+            SavedAccount saved = AccountFile.Load();
+            if (saved == null)
+            {
+                done(false, "Нужно войти в аккаунт");
+                yield break;
+            }
+            yield return SignInRoutine(saved.username, saved.password, (result, message) => done(result == AuthResult.Ok, message));
+        }
+
+        /// <summary>Вход логином и паролем; удачный — сохраняет их в файл аккаунта. done(итог, текст для игрока).</summary>
+        public void SignIn(string username, string password, Action<AuthResult, string> done) => StartCoroutine(SignInRoutine(username, password, done));
+
+        IEnumerator SignInRoutine(string username, string password, Action<AuthResult, string> done)
+        {
+            var request = new LoginRequest { username = (username ?? "").Trim(), password = password ?? "", game_version = Application.version, platform = Application.platform.ToString() };
+            yield return AuthRoutine("/v1/game/login", JsonUtility.ToJson(request), request.password, done);
+        }
+
+        /// <summary>Новый аккаунт со своим логином и паролем; удачно — сразу вход и файл аккаунта.</summary>
+        public void Register(string username, string password, string displayName, Action<AuthResult, string> done) =>
+            StartCoroutine(RegisterRoutine(username, password, displayName, done));
+
+        IEnumerator RegisterRoutine(string username, string password, string displayName, Action<AuthResult, string> done)
+        {
             var request = new RegisterRequest
             {
-                installation_id = InstallationId,
-                game_version = Application.version,
-                platform = Application.platform.ToString(),
+                username = (username ?? "").Trim(), password = password ?? "", display_name = (displayName ?? "").Trim(),
+                installation_id = InstallationId, game_version = Application.version, platform = Application.platform.ToString(),
             };
-            bool ok = false;
-            string error = null;
-            yield return Send("POST", "/v1/game/register", JsonUtility.ToJson(request), false, (success, body, message) =>
+            yield return AuthRoutine("/v1/game/register", JsonUtility.ToJson(request), request.password, done);
+        }
+
+        IEnumerator AuthRoutine(string path, string json, string password, Action<AuthResult, string> done)
+        {
+            long status = 0;
+            yield return Send("POST", path, json, false, (ok, body, error) =>
             {
-                ok = success;
-                error = message;
-                if (!success) return;
-                var response = JsonUtility.FromJson<RegisterResponse>(body);
-                PlayerPrefs.SetString(TokenKey, response.token);
-                PlayerPrefs.SetString(PlayerKey, JsonUtility.ToJson(response.user));
-                PlayerPrefs.Save();
+                if (ok)
+                {
+                    var response = JsonUtility.FromJson<RegisterResponse>(body);
+                    PlayerPrefs.SetString(TokenKey, response.token);
+                    PlayerPrefs.SetString(PlayerKey, JsonUtility.ToJson(response.user));
+                    if (!string.IsNullOrEmpty(response.user?.installation_id)) PlayerPrefs.SetString(InstallationKey, response.user.installation_id);
+                    PlayerPrefs.Save();
+                    AccountFile.Save(response.user?.username, password);
+                    done(AuthResult.Ok, null);
+                    return;
+                }
+                AuthResult result = status == 0 ? AuthResult.Offline
+                    : status == 400 || status == 401 || status == 403 || status == 409 || status == 429 ? AuthResult.Rejected
+                    : AuthResult.Error;
+                done(result, error);
+            }, onStatus: code => status = code);
+        }
+
+        /// <summary>Сменить пароль: текущий — из файла аккаунта, новый сразу записывается туда же.</summary>
+        public void ChangePassword(string newPassword, Action<bool, string> done) => StartCoroutine(ChangePasswordRoutine(newPassword, done));
+
+        IEnumerator ChangePasswordRoutine(string newPassword, Action<bool, string> done)
+        {
+            SavedAccount saved = AccountFile.Load();
+            bool signedIn = false;
+            string error = null;
+            yield return EnsureAccountRoutine((ok, message) => { signedIn = ok; error = message; });
+            if (!signedIn || saved == null)
+            {
+                done(false, error ?? "Нужно войти в аккаунт");
+                yield break;
+            }
+            var request = new PasswordRequest { current_password = saved.password, new_password = newPassword };
+            yield return Send("POST", "/v1/game/password", JsonUtility.ToJson(request), true, (ok, body, message) =>
+            {
+                if (ok) AccountFile.Save(saved.username, newPassword);
+                done(ok, ok ? "Пароль изменён. На других компьютерах игра попросит войти заново." : message);
             });
-            done(ok, error);
+        }
+
+        /// <summary>Выйти из аккаунта: токен на сервере отзывается, файл аккаунта удаляется — при входе в меню спросят снова.</summary>
+        public void SignOut()
+        {
+            if (IsRegistered) StartCoroutine(Send("POST", "/v1/game/logout", "{}", true, (ok, body, error) => { }));
+            Forget();
+            AccountFile.Delete();
+            SessionChecked = false;
+            EndSession();
         }
 
         /// <summary>Проверить, что сервер видит модель: для кнопки в настройках. done(ok, текст для игрока).</summary>
@@ -400,7 +503,7 @@ namespace StillAwake
         }
 
         IEnumerator Send(string method, string path, string json, bool auth, Action<bool, string, string> done,
-            int timeoutSeconds = DefaultTimeoutSeconds, string server = null)
+            int timeoutSeconds = DefaultTimeoutSeconds, string server = null, Action<long> onStatus = null)
         {
             string baseUrl = server ?? ServerUrl;
             using var request = new UnityWebRequest(baseUrl + path, method);
@@ -414,6 +517,7 @@ namespace StillAwake
             if (auth) request.SetRequestHeader("Authorization", "Bearer " + PlayerPrefs.GetString(TokenKey, ""));
 
             yield return request.SendWebRequest();
+            onStatus?.Invoke(request.responseCode);
 
             string body = request.downloadHandler != null ? request.downloadHandler.text : "";
             if (request.result == UnityWebRequest.Result.Success)
@@ -428,7 +532,7 @@ namespace StillAwake
                 var parsed = JsonUtility.FromJson<ErrorResponse>(body);
                 if (!string.IsNullOrEmpty(parsed?.error)) error = parsed.error;
             }
-            // Токен отозван или аккаунт заблокирован — дальше без аккаунта, пока игрок не войдёт снова.
+            // Токен отозван или аккаунт заблокирован — забыть его: следующий запрос войдёт заново логином и паролем из файла.
             if (auth && request.responseCode == 401)
             {
                 Forget();
@@ -479,6 +583,10 @@ namespace StillAwake
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics() => instance = null;
+        static void ResetStatics()
+        {
+            instance = null;
+            SessionChecked = false;
+        }
     }
 }

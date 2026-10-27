@@ -14,23 +14,28 @@ import (
 	"still-awake-backend/internal/db"
 )
 
-// Игровое API. Игра регистрируется сама, без участия игрока: по ключу установки (installation_id, его
-// генерирует игра) или, по желанию, по номеру телефона (без SMS — номер и есть аккаунт). В ответ — долгоживущий
-// токен; дальше игра ходит с Authorization: Bearer <токен>.
+// Игровое API. Игрок обязательно заводит аккаунт: регистрация — свой логин и пароль (POST /v1/game/register),
+// вход — ими же (POST /v1/game/login, player.go). Игра хранит логин и пароль в файле и входит при каждом
+// запуске; в ответ — токен, дальше игра ходит с Authorization: Bearer <токен>. Анонимного входа (по ключу
+// установки или номеру телефона без SMS) нет: и то и другое позволяло войти под чужим игроком.
 
 const maxRegistrationsPerWindow = 30
 
-// installationPattern — ключ установки, который игра генерирует сама: он же служит паролем устройства.
+// installationPattern — ключ установки, который присылает игра при регистрации: только чтобы записать платформу
+// и версию. Аккаунтом он не является — войти по нему нельзя.
 var installationPattern = regexp.MustCompile(`^inst_[0-9a-f]{16,64}$`)
 
 type gameRegisterInput struct {
-	Phone          string `json:"phone"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
 	DisplayName    string `json:"display_name"`
 	InstallationID string `json:"installation_id"`
 	GameVersion    string `json:"game_version"`
 	Platform       string `json:"platform"`
 }
 
+// gameRegister — новый игрок со своим логином и паролем. Логин занят — 409; к аккаунту сразу привязывается
+// установка (её ночи — ночи игрока), а ответ — как у входа: токен и профиль.
 func (s *Server) gameRegister(w http.ResponseWriter, r *http.Request) {
 	var in gameRegisterInput
 	if err := decodeJSON(r, &in); err != nil {
@@ -41,115 +46,46 @@ func (s *Server) gameRegister(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, fail(http.StatusTooManyRequests, "RATE_LIMITED", "Слишком много попыток. Подождите минуту."))
 		return
 	}
-	if strings.TrimSpace(in.Phone) == "" {
-		s.gameRegisterDevice(w, r, in)
-		return
-	}
-	phone, err := auth.NormalizePhone(in.Phone)
+	username, err := auth.NormalizeUsername(in.Username)
 	if err != nil {
-		writeAPIError(w, fail(http.StatusBadRequest, "PHONE_INVALID", err.Error()))
+		writeAPIError(w, fail(http.StatusBadRequest, "USERNAME_INVALID", err.Error()))
+		return
+	}
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		writeAPIError(w, fail(http.StatusBadRequest, "PASSWORD_INVALID", err.Error()))
 		return
 	}
 	ctx := r.Context()
-	ip := clientIP(r)
-	record := func(userID string, ok bool, reason string) {
-		_ = s.store.AddLoginEvent(ctx, db.LoginEvent{UserID: userID, Identifier: phone, Success: ok, Reason: reason, Method: "phone", IP: ip, UserAgent: userAgent(r)})
+	// Ключ установки от игры берётся, только если он ещё ничей: иначе — новая установка.
+	installationID := ""
+	if id := strings.TrimSpace(in.InstallationID); installationPattern.MatchString(id) {
+		if _, err := s.store.GetUserByInstallation(ctx, id); errors.Is(err, sql.ErrNoRows) {
+			installationID = id
+		}
 	}
-	if n, err := s.store.RecentLoginFailures(ctx, phone, ip, sinceWindow()); err == nil && n >= maxRegistrationsPerWindow {
-		writeAPIError(w, fail(http.StatusTooManyRequests, "RATE_LIMITED", "Слишком много попыток. Подождите несколько минут."))
+	installationID, err = s.ensureInstallation(ctx, installationID, in.Platform, in.GameVersion)
+	if err != nil {
+		writeAPIError(w, err)
 		return
 	}
-
 	name := cleanName(in.DisplayName)
-	user, err := s.store.GetUserByPhone(ctx, phone)
-	created := false
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		installationID, err := s.ensureInstallation(ctx, in.InstallationID, in.Platform, in.GameVersion)
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		if name == "" {
-			name = "Игрок"
-		}
-		user, err = s.store.CreateUser(ctx, db.NewUser{
-			Username: "player_" + strings.TrimPrefix(auth.NewID("x"), "x_")[:10], DisplayName: name, Phone: phone,
-			Kind: db.KindPlayer, InstallationID: installationID, RoleSlugs: []string{auth.RolePlayer},
-		})
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		created = true
-	case err != nil:
+	if name == "" {
+		name = username
+	}
+	user, err := s.store.CreateUser(ctx, db.NewUser{
+		Username: username, DisplayName: name, Kind: db.KindPlayer, PasswordHash: hash,
+		InstallationID: installationID, RoleSlugs: []string{auth.RolePlayer},
+	})
+	if errors.Is(err, db.ErrConflict) {
+		writeAPIError(w, fail(http.StatusConflict, "USERNAME_TAKEN", "Логин уже занят — придумайте другой"))
+		return
+	}
+	if err != nil {
 		writeAPIError(w, err)
 		return
-	default:
-		if user.Status != db.StatusActive {
-			record(user.ID, false, "blocked")
-			writeAPIError(w, fail(http.StatusForbidden, "BLOCKED", "Аккаунт заблокирован"))
-			return
-		}
-		if user.InstallationID == "" {
-			installationID, err := s.ensureInstallation(ctx, in.InstallationID, in.Platform, in.GameVersion)
-			if err != nil {
-				writeAPIError(w, err)
-				return
-			}
-			_ = s.store.SetUserInstallation(ctx, user.ID, installationID)
-		}
-		if name != "" && name != user.DisplayName {
-			_ = s.store.UpdateUserProfile(ctx, user.ID, name, nil)
-		}
 	}
-
-	s.finishGameLogin(w, r, user, created, "phone", phone)
-}
-
-// gameRegisterDevice — вход без телефона: игрок — это установка игры. Новый ключ — новый игрок, знакомый — тот же.
-func (s *Server) gameRegisterDevice(w http.ResponseWriter, r *http.Request, in gameRegisterInput) {
-	id := strings.TrimSpace(in.InstallationID)
-	if !installationPattern.MatchString(id) {
-		writeAPIError(w, fail(http.StatusBadRequest, "INSTALLATION_INVALID", "Нужен номер телефона или installation_id вида inst_<16–64 hex>"))
-		return
-	}
-	ctx := r.Context()
-	user, err := s.store.GetUserByInstallation(ctx, id)
-	created := false
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		if ok, err := s.store.InstallationExists(ctx, id); err != nil {
-			writeAPIError(w, err)
-			return
-		} else if !ok {
-			meta, _ := json.Marshal(map[string]string{"source": "game", "platform": truncate(in.Platform, 64), "game_version": truncate(in.GameVersion, 32)})
-			if err := s.store.CreateInstallation(ctx, id, meta); err != nil {
-				writeAPIError(w, err)
-				return
-			}
-		}
-		name := cleanName(in.DisplayName)
-		if name == "" {
-			name = "Игрок " + id[len(id)-4:]
-		}
-		user, err = s.store.CreateUser(ctx, db.NewUser{
-			Username: "player_" + strings.TrimPrefix(auth.NewID("x"), "x_")[:10], DisplayName: name,
-			Kind: db.KindPlayer, InstallationID: id, RoleSlugs: []string{auth.RolePlayer},
-		})
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		created = true
-	case err != nil:
-		writeAPIError(w, err)
-		return
-	case user.Status != db.StatusActive:
-		writeAPIError(w, fail(http.StatusForbidden, "BLOCKED", "Аккаунт заблокирован"))
-		return
-	}
-	s.finishGameLogin(w, r, user, created, "device", id)
+	s.finishGameLogin(w, r, user, true, "game_register", username)
 }
 
 // finishGameLogin выдаёт игровой токен и пишет вход в журнал.
@@ -212,21 +148,24 @@ func (s *Server) gameModel(w http.ResponseWriter, r *http.Request, a *Actor) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// ensureInstallation — установка игры, к которой привязываются сессии игрока.
+// ensureInstallation — установка игры, к которой привязываются сессии игрока. id — ключ от игры (уже проверенный):
+// есть — берётся как есть, нет такого — создаётся с ним; пустой — сервер придумывает свой.
 func (s *Server) ensureInstallation(ctx context.Context, id, platform, version string) (string, error) {
 	if id != "" {
 		if ok, err := s.store.InstallationExists(ctx, id); err != nil || ok {
 			return id, err
 		}
+	} else {
+		id = newID("inst")
 	}
 	meta, _ := json.Marshal(map[string]string{"source": "game", "platform": truncate(platform, 64), "game_version": truncate(version, 32)})
-	newID := newID("inst")
-	return newID, s.store.CreateInstallation(ctx, newID, meta)
+	return id, s.store.CreateInstallation(ctx, id, meta)
 }
 
 func gameUserView(u db.User) map[string]any {
 	return map[string]any{
-		"id": u.ID, "display_name": u.DisplayName, "phone": u.Phone, "installation_id": u.InstallationID, "created_at": u.CreatedAt,
+		"id": u.ID, "username": u.Username, "display_name": u.DisplayName, "installation_id": u.InstallationID,
+		"has_password": u.HasPassword, "created_at": u.CreatedAt,
 	}
 }
 
@@ -242,7 +181,7 @@ func (s *Server) gameUpdateMe(w http.ResponseWriter, r *http.Request, a *Actor) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.store.UpdateUserProfile(r.Context(), a.User.ID, cleanName(in.DisplayName), nil); err != nil {
+	if err := s.store.UpdateUserProfile(r.Context(), a.User.ID, cleanName(in.DisplayName)); err != nil {
 		writeAPIError(w, err)
 		return
 	}

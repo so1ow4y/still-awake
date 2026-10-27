@@ -24,6 +24,7 @@ namespace StillAwake
         public const string Flashlight = "flashlight";
         public const string Note = "note";
         public const string Powerbank = "powerbank";
+        public const string Shard = "shard";
 
         static readonly ItemDef[] All =
         {
@@ -31,6 +32,7 @@ namespace StillAwake
             new ItemDef(Flashlight, "Фонарик", "Светит ярко. В темноте помогает, но свет могут заметить."),
             new ItemDef(Note, "Записка", "Сложенный листок. Почерк незнакомый."),
             new ItemDef(Powerbank, "Пауэрбанк", "Заряжен. Пригодится, если отключат электричество."),
+            new ItemDef(Shard, "Осколок стекла", "Длинный острый осколок, обмотанный тканью. Если он найдёт меня в шкафу — я буду готова."),
         };
 
         public static ItemDef Get(string id)

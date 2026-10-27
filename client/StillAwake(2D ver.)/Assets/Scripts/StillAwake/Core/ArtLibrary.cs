@@ -12,6 +12,11 @@ namespace StillAwake
         /// <summary>Фон главного меню (1920×1080). Пока его нет — тёмный экран.</summary>
         public const string MenuBackground = "UI/menu_background";
 
+        /// <summary>Виды «изнутри» 1920×1080: глазок и укрытия. Сталкер дорисовывается поверх кодом.</summary>
+        public const string Peephole = "Views/peephole";
+        public const string HideWardrobe = "Views/hide_wardrobe";
+        public const string HideUnderBed = "Views/hide_under_bed";
+
         public static string Item(string itemId) => "Items/" + itemId;
         public static string CloseUp(string hotspotId) => "CloseUps/" + hotspotId;
     }

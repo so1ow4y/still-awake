@@ -13,7 +13,7 @@ export const LOGIN_REASONS = {
   invalid_password: 'неверный пароль', user_not_found: 'нет такого логина', blocked: 'аккаунт заблокирован',
   rate_limited: 'слишком много попыток', registered: 'регистрация',
 };
-const METHODS = { password: 'панель', phone: 'игра (телефон)' };
+const METHODS = { password: 'панель', game_password: 'игра', game_register: 'игра (регистрация)', phone: 'игра (телефон, старое)', device: 'игра (ключ установки, старое)' };
 
 export function LoginRows({ rows, showUser = true }) {
   if (!rows.length) return html`<${Empty}>Записей нет.<//>`;
@@ -41,7 +41,7 @@ export function LoginsScreen({ query = {} }) {
       <${ScreenHead} title="Журнал входов" desc="Входы в панель и регистрации из игры — с неудачными попытками и причинами."
         actions=${html`<${Choice} label="Итог" value=${success} options=${RESULTS} onChange=${(v) => setQuery({ success: v })}/>`}/>
       <div class="toolbar">
-        <${SearchBox} value=${search} onInput=${setSearch} placeholder="логин, телефон, адрес, причина" onEnter=${() => setQuery({ q: search.trim() })}/>
+        <${SearchBox} value=${search} onInput=${setSearch} placeholder="логин, адрес, причина" onEnter=${() => setQuery({ q: search.trim() })}/>
         <button type="button" class="btn" onClick=${() => setQuery({ q: search.trim() })}>Найти</button>
       </div>
       <section class="card">

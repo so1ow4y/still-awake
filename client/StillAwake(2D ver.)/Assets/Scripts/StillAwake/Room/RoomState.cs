@@ -11,6 +11,8 @@ namespace StillAwake
         public bool DoorLocked;
         public bool TableMoved;
         public bool FlashlightOn;
+        /// <summary>Разбито стекло (окно или зеркало) — из него взят осколок.</summary>
+        public bool GlassBroken;
         public HideSpot Hidden = HideSpot.None;
 
         /// <summary>Шум 0–100. Растёт от действий, затухает со временем.</summary>

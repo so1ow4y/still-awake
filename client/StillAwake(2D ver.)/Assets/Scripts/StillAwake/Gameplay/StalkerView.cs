@@ -16,6 +16,8 @@ namespace StillAwake
         RoomState room;
         SpriteRenderer spriteRenderer;
         Color baseColor;
+        /// <summary>Сдвиг по маршруту и «приближение» после мигания света.</summary>
+        float wanderOffset, scale = 1f, targetScale = 1f;
 
         /// <summary>Сталкер виден в кадре и точка попадает в его силуэт.</summary>
         public bool Contains(Vector2 worldPoint) =>
@@ -35,8 +37,20 @@ namespace StillAwake
             spriteRenderer.enabled = false;
         }
 
+        /// <summary>Мигание света: в темноте силуэт рывком переносится в другую точку маршрута и становится больше.</summary>
+        public void Lurch()
+        {
+            wanderOffset = Random.Range(0f, WanderSeconds * 2f);
+            scale = Random.Range(1.1f, 1.3f);
+            targetScale = scale;
+        }
+
+        /// <summary>Свет снова ровный: силуэт медленно «отступает» к обычному размеру.</summary>
+        public void Settle() => targetScale = 1f;
+
         void LateUpdate()
         {
+            scale = Mathf.MoveTowards(scale, targetScale, Time.deltaTime * 0.05f);
             StalkerSpot[] spots = view.GetStalkerSpots(stalker.Node);
             bool outside = stalker.Node == StalkerNode.Street || stalker.Node == StalkerNode.Window;
             bool behindCurtains = outside && room.CurtainsClosed && view.Current == ViewId.Window;
@@ -46,11 +60,11 @@ namespace StillAwake
 
             StalkerSpot from = spots[0];
             StalkerSpot to = spots[spots.Length - 1];
-            float t = Mathf.SmoothStep(0f, 1f, Mathf.PingPong(Time.time / WanderSeconds, 1f));
+            float t = Mathf.SmoothStep(0f, 1f, Mathf.PingPong((Time.time + wanderOffset) / WanderSeconds, 1f));
 
             Rect a = FrameSpace.ToWorld(from.Area);
             Rect b = FrameSpace.ToWorld(to.Area);
-            Vector2 size = Vector2.Lerp(a.size, b.size, t);
+            Vector2 size = Vector2.Lerp(a.size, b.size, t) * scale;
             Vector2 spriteSize = spriteRenderer.sprite.bounds.size;
 
             transform.localPosition = Vector2.Lerp(a.center, b.center, t);

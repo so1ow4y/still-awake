@@ -21,6 +21,12 @@ namespace StillAwake
         public HideSpot RememberedSpot { get; private set; }
 
         public int Visits { get; private set; }
+
+        /// <summary>
+        /// После 6 утра, если помощь не вызвана: он идёт прямо к двери, входит и обыскивает комнату до конца.
+        /// Спрятаться уже не поможет — спасает только осколок в шкафу.
+        /// </summary>
+        public bool FinalAssault { get; private set; }
         public float Timer => timer;
 
         public event Action<StalkerNode> NodeChanged;
@@ -56,6 +62,16 @@ namespace StillAwake
         {
             Active = false;
             MoveTo(StalkerNode.Away, 0f);
+        }
+
+        /// <summary>Рассвет без помощи: последний визит, из которого он не уйдёт с пустыми руками.</summary>
+        public void StartFinalAssault()
+        {
+            if (FinalAssault) return;
+            FinalAssault = true;
+            Active = true;
+            if (Node == StalkerNode.Door || Node == StalkerNode.Room) return;
+            ArriveAtDoor();
         }
 
         public void AddAttention(float amount) => Attention = Mathf.Clamp(Attention + amount, 0f, 100f);
@@ -161,6 +177,13 @@ namespace StillAwake
 
         void FinishSearch()
         {
+            if (FinalAssault)
+            {
+                Catch(room.Hidden == HideSpot.Wardrobe
+                    ? "Дверца шкафа распахнулась. Ему больше некуда было спешить — и ей нечем было защититься."
+                    : "Он не торопился. Заглянул под кровать, в шкаф, за шторы — и нашёл.");
+                return;
+            }
             if (RememberedSpot != HideSpot.None && RememberedSpot == room.Hidden)
             {
                 Catch("Он сразу заглянул туда, где ты пряталась в прошлый раз.");

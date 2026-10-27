@@ -149,28 +149,3 @@ func NormalizeUsername(v string) (string, error) {
 	}
 	return v, nil
 }
-
-var errBadPhone = errors.New("номер телефона: 10–15 цифр, можно с + в начале")
-
-// NormalizePhone приводит номер к виду +79001234567. Пробелы, скобки и дефисы допускаются при вводе.
-func NormalizePhone(v string) (string, error) {
-	var digits strings.Builder
-	for i, r := range strings.TrimSpace(v) {
-		switch {
-		case r >= '0' && r <= '9':
-			digits.WriteRune(r)
-		case r == '+' && i == 0, r == ' ', r == '-', r == '(', r == ')':
-		default:
-			return "", errBadPhone
-		}
-	}
-	d := digits.String()
-	// Российский номер, набранный с восьмёрки: 8 900 … → +7 900 ….
-	if len(d) == 11 && d[0] == '8' {
-		d = "7" + d[1:]
-	}
-	if len(d) < 10 || len(d) > 15 {
-		return "", errBadPhone
-	}
-	return "+" + d, nil
-}

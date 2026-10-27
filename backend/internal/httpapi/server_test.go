@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -181,16 +182,16 @@ func TestGameRegistrationAndChat(t *testing.T) {
 	root := login(t, srv.URL, "admin", "root-password")
 
 	game := newClient(t, srv.URL)
-	reg := game.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"phone": "8 (900) 123-45-67", "display_name": "Маша"})
+	reg := game.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"username": "masha", "password": "masha-password", "display_name": "Маша"})
 	game.token = reg["token"].(string)
 	user := reg["user"].(map[string]any)
-	if user["phone"] != "+79001234567" || user["installation_id"] == "" {
+	if user["display_name"] != "Маша" || user["installation_id"] == "" {
 		t.Fatalf("регистрация: %v", user)
 	}
 
-	again := newClient(t, srv.URL).expect(http.StatusOK, "POST", "/v1/game/register", map[string]string{"phone": "+7 900 123 45 67"})
-	if again["created"] != false {
-		t.Fatalf("повторная регистрация создала нового игрока: %v", again)
+	again := newClient(t, srv.URL).expect(http.StatusOK, "POST", "/v1/game/login", map[string]string{"username": "masha", "password": "masha-password"})
+	if again["created"] != false || again["user"].(map[string]any)["id"] != user["id"] {
+		t.Fatalf("повторный вход: %v", again)
 	}
 
 	game.expect(http.StatusOK, "GET", "/v1/game/me", nil)
@@ -248,7 +249,7 @@ func TestGameRegistrationAndChat(t *testing.T) {
 
 	// Чужую сессию игрок не видит.
 	other := newClient(t, srv.URL)
-	other.token = other.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"phone": "+7 911 000 00 00"})["token"].(string)
+	other.token = other.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"username": "oleg", "password": "oleg-password"})["token"].(string)
 	other.expect(http.StatusNotFound, "POST", "/v1/game/sessions/"+sid+"/events", map[string]any{"type": "x"})
 
 	// Игрок виден в панели.
@@ -262,25 +263,32 @@ func TestGameDeviceRegistration(t *testing.T) {
 	srv, _ := setup(t)
 	device := "inst_0123456789abcdef0123456789abcdef"
 
+	// Регистрация — свой логин и пароль; ключ установки игры записывается, но аккаунтом не является.
 	first := newClient(t, srv.URL)
-	reg := first.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"installation_id": device, "platform": "test"})
+	reg := first.expect(http.StatusCreated, "POST", "/v1/game/register",
+		map[string]string{"username": "masha", "password": "masha-password", "installation_id": device, "platform": "test"})
 	user := reg["user"].(map[string]any)
-	if user["installation_id"] != device || user["phone"] != "" || !strings.HasPrefix(user["display_name"].(string), "Игрок ") {
-		t.Fatalf("игрок без телефона: %v", user)
+	if user["username"] != "masha" || user["installation_id"] != device || reg["credentials"] != nil {
+		t.Fatalf("регистрация: %v", reg)
 	}
 	first.token = reg["token"].(string)
 
-	// Тот же ключ установки — тот же игрок; его ночи ему и принадлежат.
-	again := newClient(t, srv.URL).expect(http.StatusOK, "POST", "/v1/game/register", map[string]string{"installation_id": device})
-	if again["created"] != false || again["user"].(map[string]any)["id"] != user["id"] {
-		t.Fatalf("повторный вход по ключу: %v", again)
+	// Анонимного входа больше нет: ни по ключу установки, ни по телефону.
+	newClient(t, srv.URL).expect(http.StatusBadRequest, "POST", "/v1/game/register", map[string]string{"installation_id": device})
+	newClient(t, srv.URL).expect(http.StatusBadRequest, "POST", "/v1/game/register", map[string]any{"phone": "+7 900 123 45 67", "username": "vasya", "password": "vasya-password"})
+	// Логин занят, плохой логин, короткий пароль.
+	newClient(t, srv.URL).expect(http.StatusConflict, "POST", "/v1/game/register", map[string]string{"username": "Masha", "password": "other-password"})
+	newClient(t, srv.URL).expect(http.StatusBadRequest, "POST", "/v1/game/register", map[string]string{"username": "../../etc", "password": "long-enough-1"})
+	newClient(t, srv.URL).expect(http.StatusBadRequest, "POST", "/v1/game/register", map[string]string{"username": "petya", "password": "short"})
+	// Чужой ключ установки не перехватывается: второй игрок получает свою установку.
+	second := newClient(t, srv.URL).expect(http.StatusCreated, "POST", "/v1/game/register",
+		map[string]string{"username": "petya", "password": "petya-password", "installation_id": device})
+	if second["user"].(map[string]any)["installation_id"] == device {
+		t.Fatalf("чужая установка: %v", second)
 	}
+
 	sid := first.expect(http.StatusCreated, "POST", "/v1/game/sessions", map[string]any{"game_version": "0.2"})["session_id"].(string)
 	first.expect(http.StatusAccepted, "POST", "/v1/game/sessions/"+sid+"/events", map[string]any{"type": "night_start"})
-
-	// Мусорный ключ не принимается.
-	newClient(t, srv.URL).expect(http.StatusBadRequest, "POST", "/v1/game/register", map[string]string{"installation_id": "../../etc"})
-	newClient(t, srv.URL).expect(http.StatusBadRequest, "POST", "/v1/game/register", map[string]string{})
 
 	// Проверка модели из настроек игры — без адреса провайдера.
 	model := first.expect(http.StatusOK, "GET", "/v1/game/model", nil)
@@ -288,4 +296,91 @@ func TestGameDeviceRegistration(t *testing.T) {
 		t.Fatalf("статус модели: %v", model)
 	}
 	newClient(t, srv.URL).expect(http.StatusUnauthorized, "GET", "/v1/game/model", nil)
+}
+
+func TestPlayerAccount(t *testing.T) {
+	srv, _ := setup(t)
+
+	game := newClient(t, srv.URL)
+	game.token = game.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"username": "dasha", "password": "dasha-password"})["token"].(string)
+	sid := game.expect(http.StatusCreated, "POST", "/v1/game/sessions", map[string]any{"scenario": "night-1"})["session_id"].(string)
+
+	other := newClient(t, srv.URL)
+	other.token = other.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"username": "oleg", "password": "oleg-password"})["token"].(string)
+	foreign := other.expect(http.StatusCreated, "POST", "/v1/game/sessions", map[string]any{})["session_id"].(string)
+
+	// Каждый запуск игры — вход логином и паролем из файла: те же ночи; неверные — 401, экран входа.
+	again := newClient(t, srv.URL)
+	login := again.expect(http.StatusOK, "POST", "/v1/game/login", map[string]string{"username": "dasha", "password": "dasha-password"})
+	again.token = login["token"].(string)
+	if login["user"].(map[string]any)["username"] != "dasha" {
+		t.Fatalf("вход: %v", login)
+	}
+	again.expect(http.StatusAccepted, "POST", "/v1/game/sessions/"+sid+"/events", map[string]any{"type": "night_start"})
+	newClient(t, srv.URL).expect(http.StatusUnauthorized, "POST", "/v1/game/login", map[string]string{"username": "dasha", "password": "edited-by-hand"})
+	newClient(t, srv.URL).expect(http.StatusUnauthorized, "POST", "/v1/game/login", map[string]string{"username": "nobody", "password": "dasha-password"})
+	newClient(t, srv.URL).expect(http.StatusForbidden, "POST", "/v1/game/login", map[string]string{"username": "admin", "password": "root-password"})
+
+	// Панель: игрок входит тем же логином и видит только свои ночи; сводка сервера и чужое закрыты.
+	web := newClient(t, srv.URL)
+	web.expect(http.StatusOK, "POST", "/v1/auth/login", map[string]string{"username": "dasha", "password": "dasha-password"})
+	_, list := web.call("GET", "/v1/me/sessions", nil)
+	raw, _ := list["_raw"].(string)
+	if !strings.Contains(raw, sid) || strings.Contains(raw, foreign) {
+		t.Fatalf("мои ночи: %s", raw)
+	}
+	web.expect(http.StatusOK, "GET", "/v1/me/sessions/"+sid, nil)
+	web.expect(http.StatusOK, "GET", "/v1/me/sessions/"+sid+"/events", nil)
+	web.expect(http.StatusNotFound, "GET", "/v1/me/sessions/"+foreign, nil)
+	web.expect(http.StatusForbidden, "GET", "/v1/admin/overview", nil)
+	web.expect(http.StatusForbidden, "GET", "/v1/admin/sessions", nil)
+
+	// Смена пароля из игры — с текущим; старый больше не подходит, другие входы аккаунта завершены.
+	game.expect(http.StatusBadRequest, "POST", "/v1/game/password", map[string]string{"current_password": "wrong-password", "new_password": "dasha-new-password"})
+	game.expect(http.StatusOK, "POST", "/v1/game/password", map[string]string{"current_password": "dasha-password", "new_password": "dasha-new-password"})
+	newClient(t, srv.URL).expect(http.StatusUnauthorized, "POST", "/v1/game/login", map[string]string{"username": "dasha", "password": "dasha-password"})
+	newClient(t, srv.URL).expect(http.StatusOK, "POST", "/v1/game/login", map[string]string{"username": "dasha", "password": "dasha-new-password"})
+	again.expect(http.StatusUnauthorized, "GET", "/v1/game/me", nil)
+}
+
+// Старая недействительная cookie в браузере не мешает войти заново.
+func TestLoginWithStaleCookie(t *testing.T) {
+	srv, _ := setup(t)
+	c := newClient(t, srv.URL)
+	u, _ := url.Parse(srv.URL)
+	c.http.Jar.SetCookies(u, []*http.Cookie{{Name: sessionCookie, Value: "stale-token", Path: "/"}})
+	c.expect(http.StatusOK, "POST", "/v1/auth/login", map[string]string{"username": "admin", "password": "root-password"})
+}
+
+func TestDeleteUser(t *testing.T) {
+	srv, _ := setup(t)
+	root := login(t, srv.URL, "admin", "root-password")
+
+	game := newClient(t, srv.URL)
+	reg := game.expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"username": "lena", "password": "lena-password"})
+	game.token = reg["token"].(string)
+	id := reg["user"].(map[string]any)["id"].(string)
+	sid := game.expect(http.StatusCreated, "POST", "/v1/game/sessions", map[string]any{})["session_id"].(string)
+
+	keep := newClient(t, srv.URL).expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"username": "kolya", "password": "kolya-password"})
+	keepID := keep["user"].(map[string]any)["id"].(string)
+
+	// Себя удалить нельзя; без права users.delete — тоже нельзя.
+	me := root.expect(http.StatusOK, "GET", "/v1/auth/me", nil)["user"].(map[string]any)["id"].(string)
+	root.expect(http.StatusForbidden, "DELETE", "/v1/admin/users/"+me, nil)
+	game.expect(http.StatusForbidden, "DELETE", "/v1/admin/users/"+keepID, nil)
+
+	// С ночами: аккаунт, токены и ночи игрока исчезают.
+	out := root.expect(http.StatusOK, "DELETE", "/v1/admin/users/"+id+"?with_data=1", nil)
+	if out["deleted_sessions"].(float64) != 1 {
+		t.Fatalf("удаление: %v", out)
+	}
+	root.expect(http.StatusNotFound, "GET", "/v1/admin/users/"+id, nil)
+	root.expect(http.StatusNotFound, "GET", "/v1/admin/sessions/"+sid, nil)
+	game.expect(http.StatusUnauthorized, "GET", "/v1/game/me", nil)
+	newClient(t, srv.URL).expect(http.StatusUnauthorized, "POST", "/v1/game/login", map[string]string{"username": "lena", "password": "lena-password"})
+
+	// Без ночей: аккаунта нет, логин снова свободен.
+	root.expect(http.StatusOK, "DELETE", "/v1/admin/users/"+keepID, nil)
+	newClient(t, srv.URL).expect(http.StatusCreated, "POST", "/v1/game/register", map[string]string{"username": "kolya", "password": "kolya-password"})
 }

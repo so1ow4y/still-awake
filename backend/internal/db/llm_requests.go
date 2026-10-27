@@ -99,7 +99,7 @@ func (s *Store) ListLLMRequestsFiltered(ctx context.Context, f LLMRequestFilter)
 		return nil, err
 	}
 	defer rows.Close()
-	var out []LLMRequest
+	out := []LLMRequest{}
 	for rows.Next() {
 		var v LLMRequest
 		var requestMessages string

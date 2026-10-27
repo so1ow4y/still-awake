@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -80,6 +81,8 @@ func (s *Server) Handler() http.Handler {
 
 	// Игра: регистрация по телефону и игровые сессии.
 	mux.HandleFunc("POST /v1/game/register", s.gameRegister)
+	mux.HandleFunc("POST /v1/game/login", s.gameLogin)
+	mux.HandleFunc("POST /v1/game/password", need(auth.PermGamePlay)(s.gameSetPassword))
 	mux.HandleFunc("GET /v1/game/me", need(auth.PermGamePlay)(s.gameMe))
 	mux.HandleFunc("GET /v1/game/model", need(auth.PermGamePlay)(s.gameModel))
 	mux.HandleFunc("PATCH /v1/game/me", need(auth.PermGamePlay)(s.gameUpdateMe))
@@ -87,6 +90,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/game/sessions", need(auth.PermGamePlay)(s.gameCreateSession))
 	mux.HandleFunc("POST /v1/game/sessions/{id}/events", need(auth.PermGamePlay)(s.gameAddEvent))
 	mux.HandleFunc("POST /v1/game/sessions/{id}/chat", need(auth.PermGamePlay)(s.gameChat))
+
+	// Игрок в панели: только свои ночи (переписка и события, без запросов к модели — в них системный промпт).
+	mux.HandleFunc("GET /v1/me/sessions", need(auth.PermGamePlay)(s.myNights))
+	mux.HandleFunc("GET /v1/me/sessions/{id}", need(auth.PermGamePlay)(s.myNight))
+	mux.HandleFunc("GET /v1/me/sessions/{id}/messages", need(auth.PermGamePlay)(s.myNightMessages))
+	mux.HandleFunc("GET /v1/me/sessions/{id}/events", need(auth.PermGamePlay)(s.myNightEvents))
 
 	// Пользователи, роли, журнал входов.
 	mux.HandleFunc("GET /v1/admin/users", need(auth.PermUsersRead)(s.listUsers))
@@ -97,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/admin/users/{id}/block", need(auth.PermUsersBlock)(s.blockUser))
 	mux.HandleFunc("POST /v1/admin/users/{id}/unblock", need(auth.PermUsersBlock)(s.unblockUser))
 	mux.HandleFunc("POST /v1/admin/users/{id}/logout", need(auth.PermUsersBlock)(s.logoutUser))
+	mux.HandleFunc("DELETE /v1/admin/users/{id}", need(auth.PermUsersDelete)(s.deleteUser))
 	mux.HandleFunc("PUT /v1/admin/users/{id}/roles", need(auth.PermRolesAssign)(s.setUserRoles))
 	mux.HandleFunc("GET /v1/admin/roles", need(auth.PermRolesRead, auth.PermRolesAssign, auth.PermRolesManage)(s.listRoles))
 	mux.HandleFunc("GET /v1/admin/permissions", need(auth.PermRolesRead, auth.PermRolesManage)(s.listPermissions))
@@ -128,7 +138,9 @@ func (s *Server) Handler() http.Handler {
 
 	// Игровые данные.
 	read, manage := need(auth.PermSessionsRead), need(auth.PermSessionsManage)
-	mux.HandleFunc("GET /v1/admin/overview", s.authed(s.adminOverview))
+	// Обзор — сводка по всему серверу: сотрудникам с любым правом на данные или модель, но не игрокам.
+	mux.HandleFunc("GET /v1/admin/overview", need(auth.PermSessionsRead, auth.PermAnalyticsRead, auth.PermUsersRead,
+		auth.PermLLMSettings, auth.PermLLMDebug, auth.PermLLMPrompt, auth.PermDBRead, auth.PermLoginsRead)(s.adminOverview))
 	mux.HandleFunc("GET /v1/admin/installations", read(plain(s.adminListInstallations)))
 	mux.HandleFunc("PATCH /v1/admin/installations/{id}", manage(plain(s.adminUpdateInstallation)))
 	mux.HandleFunc("DELETE /v1/admin/installations/{id}", manage(plain(s.adminDeleteInstallation)))
@@ -503,6 +515,10 @@ func (nilResponseWriter) Write([]byte) (int, error) { return 0, nil }
 func (nilResponseWriter) WriteHeader(int)           {}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	// Пустой срез Go кодирует как null; клиенты ждут массив — отдаём [].
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		v = []struct{}{}
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)

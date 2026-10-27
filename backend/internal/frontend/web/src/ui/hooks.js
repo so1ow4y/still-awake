@@ -22,6 +22,8 @@ export function useRoute() {
   useEffect(() => {
     const f = () => setRoute(parseHash());
     window.addEventListener('hashchange', f);
+    // Эффекты детей идут раньше: переход из них при первой отрисовке (Redirect) случился до подписки — сверяемся.
+    if (location.hash !== route.hash) f();
     return () => window.removeEventListener('hashchange', f);
   }, []);
   return route;

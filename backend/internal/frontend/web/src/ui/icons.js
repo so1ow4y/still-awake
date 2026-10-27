@@ -5,6 +5,7 @@ import { html } from './html.js';
 const PATHS = {
   check: 'M5 12.5l4.5 4.5L19 7.5',
   plus: 'M12 5v14M5 12h14',
+  minus: 'M5 12h14',
   close: 'M6 6l12 12M18 6L6 18',
   back: 'M15 5l-7 7 7 7',
   chevron: 'M9 6l6 6-6 6',

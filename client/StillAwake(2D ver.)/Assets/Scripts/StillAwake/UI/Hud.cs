@@ -24,13 +24,32 @@ namespace StillAwake
         public event Action TurnLeftClicked;
         public event Action TurnRightClicked;
         public event Action UnhideClicked;
+        public event Action PeepholeCloseClicked;
+
+        /// <summary>Открыт вид в глазок.</summary>
+        public bool PeepholeOpen => peepholeRoot.gameObject.activeSelf;
+
+        /// <summary>
+        /// Вид «изнутри» (глазок, укрытие) и где на нём появляется сталкер: доли экрана от левого нижнего
+        /// угла — совпадает с красным пунктиром на схемах Views/*.png. Wander — насколько ходит влево-вправо.
+        /// </summary>
+        sealed class CloseUp
+        {
+            public Image Background, Stalker;
+            public Vector2 Min, Max;
+            public float Wander;
+            public bool HasArt;
+        }
 
         bool singleRoom;
         Text help, lockText;
         Text clock, hint, viewTitle, debugText, hiddenText, toastText, tooltipText;
         Button turnLeft, turnRight, returnButton, unhideButton;
         ViewId currentView;
-        RectTransform hiddenRoot, wardrobeShade, bedShade, toast, tooltip;
+        RectTransform hiddenRoot, wardrobeShade, bedShade, toast, tooltip, peepholeRoot;
+        CloseUp wardrobeView, bedView, peepholeView;
+        Text peepholeText;
+        Button peepholeClose;
         Image fade;
         float toastTimer, fadeAlpha, fadeSpeed;
 
@@ -50,14 +69,16 @@ namespace StillAwake
         void RefreshKeyHints()
         {
             string Key(GameAction action) => KeyBindings.Short(action);
-            string tail = Key(GameAction.Phone) + " — телефон · " + Key(GameAction.PhoneHide) + " — спрятать его · " +
+            string tail = Key(GameAction.Phone) + " — телефон · " + Key(GameAction.PhoneHide) + " или " +
+                          Key(GameAction.PhoneHideOnHover) + " по нему — спрятать, " + Key(GameAction.PhonePeekOnHover) + " — опустить · " +
                           Key(GameAction.CameraLock) + " — закрепить камеру · Esc — пауза";
             help.text = singleRoom
                 ? "Колесо — приблизить · " + Key(GameAction.ResetZoom) + " — общий вид · ЛКМ — действие\n" + tail
                 : "ЛКМ по предмету — действия · " + Key(GameAction.TurnLeft) + "/" + Key(GameAction.TurnRight) + " — повернуться · " +
-                  Key(GameAction.Sofa) + " — на диван · предметы снизу можно перетаскивать на объекты\n" + tail;
+                  Key(GameAction.Sofa) + " — на диван · " + Key(GameAction.Window) + " — к окну · предметы снизу можно перетаскивать на объекты\n" + tail;
             Ui.SetLabel(returnButton, "На диван [" + Key(GameAction.Sofa) + "]");
             Ui.SetLabel(unhideButton, "Вылезти [" + Key(GameAction.Unhide) + "]");
+            Ui.SetLabel(peepholeClose, "Отойти от двери [" + Key(GameAction.Unhide) + "]");
             lockText.text = "Камера закреплена [" + Key(GameAction.CameraLock) + "]";
         }
 
@@ -138,6 +159,10 @@ namespace StillAwake
         {
             hiddenRoot = Ui.Stretch(Ui.Node("Hidden overlay", root));
 
+            // Вид из укрытия (Views/*.png). Если картинки нет — тёмные плашки со щелью, как раньше.
+            wardrobeView = BuildCloseUp("Wardrobe view", hiddenRoot, ArtPaths.HideWardrobe, new Vector2(0.44f, 0.15f), new Vector2(0.56f, 0.8f), 0.015f);
+            bedView = BuildCloseUp("Under bed view", hiddenRoot, ArtPaths.HideUnderBed, new Vector2(0.19f, 0.4f), new Vector2(0.31f, 0.7f), 0.19f);
+
             wardrobeShade = Ui.Stretch(Ui.Node("Wardrobe shade", hiddenRoot));
             Ui.Anchors(Ui.Image("Left", wardrobeShade, HiddenShade).rectTransform, 0f, 0f, WardrobeSlitMin, 1f);
             Ui.Anchors(Ui.Image("Right", wardrobeShade, HiddenShade).rectTransform, WardrobeSlitMax, 0f, 1f, 1f);
@@ -146,13 +171,64 @@ namespace StillAwake
             Ui.Anchors(Ui.Image("Bottom", bedShade, HiddenShade).rectTransform, 0f, 0f, 1f, BedSlitMin);
             Ui.Anchors(Ui.Image("Top", bedShade, HiddenShade).rectTransform, 0f, BedSlitMax, 1f, 1f);
 
+            // Подпись и кнопка — выше хотбара инвентаря, который занимает низ экрана.
             hiddenText = Ui.Text("Hidden text", hiddenRoot, "", 26, Color.white);
-            Ui.Place(hiddenText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 120f), new Vector2(1000f, 40f));
+            Ui.Place(hiddenText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 210f), new Vector2(1000f, 40f));
 
             unhideButton = Ui.Button("Unhide", hiddenRoot, "Вылезти", () => UnhideClicked?.Invoke(), 24);
-            Ui.Place((RectTransform)unhideButton.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(300f, 64f));
+            Ui.Place((RectTransform)unhideButton.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 130f), new Vector2(300f, 64f));
 
             hiddenRoot.gameObject.SetActive(false);
+
+            peepholeRoot = Ui.Stretch(Ui.Node("Peephole", root));
+            peepholeView = BuildCloseUp("Peephole view", peepholeRoot, ArtPaths.Peephole, new Vector2(0.38f, 0.05f), new Vector2(0.62f, 0.8f), 0f);
+            if (!peepholeView.HasArt) peepholeView.Background.color = new Color(0.12f, 0.12f, 0.1f);
+            peepholeText = Ui.Text("Peephole text", peepholeRoot, "", 26, Color.white);
+            Ui.Place(peepholeText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 210f), new Vector2(1000f, 40f));
+            peepholeClose = Ui.Button("Leave peephole", peepholeRoot, "Отойти от двери", () => PeepholeCloseClicked?.Invoke(), 24);
+            Ui.Place((RectTransform)peepholeClose.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 130f), new Vector2(340f, 64f));
+            peepholeRoot.gameObject.SetActive(false);
+        }
+
+        static CloseUp BuildCloseUp(string name, RectTransform parent, string artPath, Vector2 min, Vector2 max, float wander)
+        {
+            Sprite art = ArtLibrary.Load(artPath);
+            var view = new CloseUp { Min = min, Max = max, Wander = wander, HasArt = art != null };
+            view.Background = Ui.Image(name, parent, Color.white, art, raycast: true);
+            Ui.Stretch(view.Background.rectTransform);
+            Sprite stalkerArt = ArtLibrary.Load(ArtPaths.Stalker);
+            view.Stalker = Ui.Image("Stalker", view.Background.transform, stalkerArt != null ? Color.white : new Color(0.75f, 0.05f, 0.05f), stalkerArt);
+            view.Stalker.preserveAspect = stalkerArt != null;
+            Ui.Anchors(view.Stalker.rectTransform, min.x, min.y, max.x, max.y);
+            view.Stalker.gameObject.SetActive(false);
+            view.Background.gameObject.SetActive(false);
+            return view;
+        }
+
+        /// <summary>Вид в глазок: коридор, а если сталкер у двери — он сам.</summary>
+        public void ShowPeephole(bool open, string text = "")
+        {
+            peepholeRoot.gameObject.SetActive(open);
+            peepholeView.Background.gameObject.SetActive(open);
+            peepholeText.text = text;
+        }
+
+        /// <summary>Сталкер на открытом виде «изнутри»: у двери — в глазке, в комнате — из укрытия. Каждый кадр.</summary>
+        public void SetCloseUpStalker(bool atDoor, bool inRoom)
+        {
+            UpdateCloseUp(peepholeView, atDoor);
+            UpdateCloseUp(wardrobeView, inRoom);
+            UpdateCloseUp(bedView, inRoom);
+        }
+
+        static void UpdateCloseUp(CloseUp view, bool visible)
+        {
+            bool show = visible && view.Background.gameObject.activeInHierarchy;
+            if (view.Stalker.gameObject.activeSelf != show) view.Stalker.gameObject.SetActive(show);
+            if (!show || view.Wander <= 0f) return;
+            // Ходит от левого края зоны к правому и обратно.
+            float shift = Mathf.SmoothStep(0f, 1f, Mathf.PingPong(Time.time / 3.5f, 1f)) * 2f * view.Wander;
+            Ui.Anchors(view.Stalker.rectTransform, view.Min.x + shift, view.Min.y, view.Max.x + shift, view.Max.y);
         }
 
         public void SetClock(string text) => clock.text = text;
@@ -188,8 +264,10 @@ namespace StillAwake
         public void ShowHidden(HideSpot spot)
         {
             hiddenRoot.gameObject.SetActive(spot != HideSpot.None);
-            wardrobeShade.gameObject.SetActive(spot == HideSpot.Wardrobe);
-            bedShade.gameObject.SetActive(spot == HideSpot.UnderBed);
+            wardrobeView.Background.gameObject.SetActive(spot == HideSpot.Wardrobe && wardrobeView.HasArt);
+            bedView.Background.gameObject.SetActive(spot == HideSpot.UnderBed && bedView.HasArt);
+            wardrobeShade.gameObject.SetActive(spot == HideSpot.Wardrobe && !wardrobeView.HasArt);
+            bedShade.gameObject.SetActive(spot == HideSpot.UnderBed && !bedView.HasArt);
             hiddenText.text = spot == HideSpot.Wardrobe
                 ? "Ты в шкафу. Сквозь щель видно комнату."
                 : "Ты под кроватью. Видно только пол.";

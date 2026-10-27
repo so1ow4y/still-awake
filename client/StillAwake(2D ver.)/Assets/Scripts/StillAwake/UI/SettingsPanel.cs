@@ -7,8 +7,9 @@ using UnityEngine.UI;
 namespace StillAwake
 {
     /// <summary>
-    /// Настройки: управление (переназначение клавиш и кнопок мыши) и ИИ (нейросеть или заготовленные реплики,
-    /// адрес сервера, проверка модели). Открывается из главного меню и из паузы. Esc обрабатывает владелец через Back().
+    /// Настройки: управление (переназначение клавиш и кнопок мыши), ИИ (нейросеть или заготовленные реплики,
+    /// адрес сервера, проверка модели) и аккаунт (смена пароля, выход, ссылка на свои ночи в панели).
+    /// Открывается из главного меню и из паузы. Esc обрабатывает владелец через Back().
     /// </summary>
     public sealed class SettingsPanel : MonoBehaviour
     {
@@ -16,6 +17,7 @@ namespace StillAwake
         {
             Controls,
             Ai,
+            Account,
         }
 
         static readonly Color WindowColor = new Color(0.06f, 0.06f, 0.08f, 1f);
@@ -30,11 +32,14 @@ namespace StillAwake
 
         readonly Dictionary<Tab, RectTransform> pages = new Dictionary<Tab, RectTransform>();
         readonly Dictionary<Tab, Button> tabButtons = new Dictionary<Tab, Button>();
-        readonly Dictionary<(GameAction, int), Button> keyButtons = new Dictionary<(GameAction, int), Button>();
+        /// <summary>Строка действия, куда перестраиваются кнопки его клавиш.</summary>
+        readonly Dictionary<GameAction, RectTransform> keyRows = new Dictionary<GameAction, RectTransform>();
         (GameAction Action, int Slot)? capturing;
         int captureFrame;
 
-        Text serverStatus;
+        Text serverStatus, accountTitle, accountStatus, accountFile;
+        InputField newPassword, repeatPassword;
+        bool accountBusy;
         InputField serverInput;
         UnityEngine.UI.Toggle aiToggle;
         bool checking;
@@ -54,6 +59,7 @@ namespace StillAwake
             RectTransform tabs = Ui.Size(Ui.Row("Tabs", column, 10f), 58f);
             panel.AddTab(tabs, Tab.Controls, "Управление");
             panel.AddTab(tabs, Tab.Ai, "ИИ и сервер");
+            panel.AddTab(tabs, Tab.Account, "Аккаунт");
 
             RectTransform body = Ui.Node("Body", column);
             var bodySize = body.gameObject.AddComponent<LayoutElement>();
@@ -62,6 +68,7 @@ namespace StillAwake
 
             panel.pages[Tab.Controls] = panel.BuildControls(body);
             panel.pages[Tab.Ai] = panel.BuildAi(body);
+            panel.pages[Tab.Account] = panel.BuildAccount(body);
 
             RectTransform footer = Ui.Size(Ui.Row("Footer", column, 12f), 60f);
             Ui.Size(Ui.Button("Back", footer, "Назад [Esc]", panel.Close, 24), 60f, 260f);
@@ -73,11 +80,14 @@ namespace StillAwake
 
         void OnDestroy() => KeyBindings.Changed -= RefreshKeys;
 
-        public void Open()
+        public void Open() => Open(Tab.Controls);
+
+
+        void Open(Tab tab)
         {
             gameObject.SetActive(true);
             transform.SetAsLastSibling();
-            Show(Tab.Controls);
+            Show(tab);
         }
 
         public void Close()
@@ -134,6 +144,7 @@ namespace StillAwake
             }
             if (tab == Tab.Controls) RefreshKeys();
             if (tab == Tab.Ai) OpenAi();
+            if (tab == Tab.Account) OpenAccount_();
         }
 
         // ------------------------------------------------------------------ управление
@@ -141,20 +152,19 @@ namespace StillAwake
         RectTransform BuildControls(RectTransform body)
         {
             RectTransform page = Ui.Stretch(Ui.Column("Controls", body, 4f));
-            Ui.Size(Ui.Text("Hint", page, "Нажми на клавишу, потом новую клавишу или кнопку мыши. Delete — очистить, Esc — отмена. Esc в игре — пауза.",
+            Ui.Size(Ui.Text("Hint", page, "Клавиш у действия сколько угодно: «+» — добавить, клик по клавише — заменить, Delete — убрать, Esc — отмена.",
                 20, Ui.Muted, TextAnchor.MiddleLeft), 34f);
 
             foreach (KeyBindings.Definition def in KeyBindings.All)
             {
-                RectTransform row = Ui.Size(Ui.Row(def.Action.ToString(), page, 10f), 42f);
-                Ui.Size(Ui.Text("Title", row, def.Title, 22, Color.white, TextAnchor.MiddleLeft), 42f);
-                for (int slot = 0; slot < KeyBindings.Slots; slot++)
-                {
-                    GameAction action = def.Action;
-                    int index = slot;
-                    Button key = Ui.Size(Ui.Button("Key " + slot, row, "", () => StartCapture(action, index), 22, KeyColor), 42f, 200f);
-                    keyButtons[(action, slot)] = key;
-                }
+                RectTransform row = Ui.Size(Ui.Row(def.Action.ToString(), page, 8f), 40f);
+                Ui.Size(Ui.Text("Title", row, def.Title, 21, Color.white, TextAnchor.MiddleLeft), 40f);
+                RectTransform keys = Ui.Row("Keys", row, 6f);
+                keys.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleRight;
+                var keysSize = keys.gameObject.AddComponent<LayoutElement>();
+                keysSize.preferredWidth = keysSize.minWidth = 560f;
+                keysSize.flexibleWidth = 0f;
+                keyRows[def.Action] = keys;
             }
 
             RectTransform resetRow = Ui.Size(Ui.Row("Reset row", page, 10f), 54f);
@@ -169,17 +179,26 @@ namespace StillAwake
             RefreshKeys();
         }
 
+        /// <summary>Перестроить кнопки клавиш: по одной на назначенную клавишу и «+» в конце.</summary>
         void RefreshKeys()
         {
-            foreach (var pair in keyButtons)
+            foreach (var pair in keyRows)
             {
-                bool waiting = capturing.HasValue && capturing.Value.Action == pair.Key.Item1 && capturing.Value.Slot == pair.Key.Item2;
-                Key key = KeyBindings.GetKey(pair.Key.Item1, pair.Key.Item2);
-                Ui.SetLabel(pair.Value, waiting ? "нажми клавишу…" : key == Key.None ? "—" : KeyBindings.KeyName(key));
-                ColorBlock colors = pair.Value.colors;
-                colors.normalColor = waiting ? CaptureColor : KeyColor;
-                colors.selectedColor = colors.normalColor;
-                pair.Value.colors = colors;
+                GameAction action = pair.Key;
+                Ui.Clear(pair.Value);
+                IReadOnlyList<Key> keys = KeyBindings.GetKeys(action);
+                for (int slot = 0; slot <= keys.Count; slot++)
+                {
+                    int index = slot;
+                    bool adding = slot == keys.Count;
+                    bool waiting = capturing.HasValue && capturing.Value.Action == action && capturing.Value.Slot == slot;
+                    string label = waiting ? "нажми…" : adding ? "+" : KeyBindings.KeyName(keys[slot]);
+                    Button button = Ui.Size(Ui.Button("Key " + slot, pair.Value, label, () => StartCapture(action, index), 20, waiting ? CaptureColor : KeyColor),
+                        40f, adding && !waiting ? 48f : 118f);
+                    ColorBlock colors = button.colors;
+                    colors.selectedColor = colors.normalColor;
+                    button.colors = colors;
+                }
             }
         }
 
@@ -258,6 +277,80 @@ namespace StillAwake
             serverInput.text = BackendClient.ServerUrl;
             // Вход выдан другим сервером — там он не действует; игра войдёт заново сама.
             if (before != BackendClient.ServerUrl) BackendClient.Forget();
+        }
+
+        // ------------------------------------------------------------------ аккаунт
+
+        RectTransform BuildAccount(RectTransform body)
+        {
+            RectTransform page = Ui.Stretch(Ui.Column("Account", body, 10f));
+            accountTitle = Ui.Size(Ui.Text("Who", page, "", 24, Color.white, TextAnchor.MiddleLeft), 40f);
+            Ui.Size(Ui.Text("Account note", page,
+                "Логин и пароль хранятся в файле игры, и при каждом запуске она входит ими сама. С ними же можно войти " +
+                "в игру на другом компьютере и смотреть свои ночи в панели сервера.",
+                20, Ui.Muted, TextAnchor.UpperLeft), 56f);
+            accountFile = Ui.Size(Ui.Text("File", page, "", 16, Ui.Muted, TextAnchor.UpperLeft), 26f);
+            RectTransform links = Ui.Size(Ui.Row("Panel row", page, 12f), 52f);
+            Ui.Size(Ui.Button("Open panel", links, "Мои ночи в панели", () => Application.OpenURL(BackendClient.ServerUrl + "/#/my"), 22), 52f, 320f);
+            Ui.Size(Ui.Button("Sign out", links, "Выйти из аккаунта", SignOut, 22), 52f, 300f);
+
+            Ui.Size(Ui.Text("Password title", page, "Сменить пароль", 24, Color.white, TextAnchor.MiddleLeft, FontStyle.Bold), 36f);
+            RectTransform passwords = Ui.Size(Ui.Row("Passwords", page, 12f), 52f);
+            newPassword = Ui.Size(Ui.Input("New password", passwords, "новый пароль (от 8 символов)", 22, InputField.ContentType.Password), 52f, 330f);
+            repeatPassword = Ui.Size(Ui.Input("Repeat password", passwords, "ещё раз", 22, InputField.ContentType.Password), 52f, 250f);
+            Ui.Size(Ui.Button("Save password", passwords, "Сохранить", SavePassword, 22, Ui.PrimaryButton), 52f, 200f);
+
+            accountStatus = Ui.Size(Ui.Text("Account status", page, "", 22, Ui.Muted, TextAnchor.UpperLeft), 64f);
+            return page;
+        }
+
+        void OpenAccount_()
+        {
+            PlayerInfo player = BackendClient.Player;
+            accountTitle.text = player != null && !string.IsNullOrEmpty(player.username)
+                ? "Вы вошли как <b>" + player.username + "</b>"
+                : "Вы играете без сервера — войти можно, выйдя из аккаунта";
+            accountFile.text = "Файл аккаунта: " + AccountFile.FilePath;
+            newPassword.text = repeatPassword.text = "";
+            SetAccountStatus("", Ui.Muted);
+        }
+
+        void SavePassword()
+        {
+            if (accountBusy) return;
+            if (newPassword.text.Length < 8)
+            {
+                SetAccountStatus("Пароль — не короче 8 символов.", Ui.ErrorColor);
+                return;
+            }
+            if (newPassword.text != repeatPassword.text)
+            {
+                SetAccountStatus("Пароли не совпадают.", Ui.ErrorColor);
+                return;
+            }
+            accountBusy = true;
+            SetAccountStatus("Сохраняю пароль…", Ui.Muted);
+            BackendClient.Instance.ChangePassword(newPassword.text, (ok, message) =>
+            {
+                if (this == null) return;
+                accountBusy = false;
+                if (ok) newPassword.text = repeatPassword.text = "";
+                SetAccountStatus(string.IsNullOrEmpty(message) ? (ok ? "Готово" : "Не получилось") : message, ok ? Ui.OkColor : Ui.ErrorColor);
+            });
+        }
+
+        /// <summary>Выйти: файл аккаунта удаляется, и главное меню снова начинается с экрана входа.</summary>
+        void SignOut()
+        {
+            BackendClient.Instance.SignOut();
+            if (GameFlow.HasMenu) GameFlow.OpenMenu();
+            else SetAccountStatus("Вы вышли из аккаунта.", Ui.OkColor);
+        }
+
+        void SetAccountStatus(string text, Color color)
+        {
+            accountStatus.text = text;
+            accountStatus.color = color;
         }
 
         void SetServerStatus(string text, Color color)

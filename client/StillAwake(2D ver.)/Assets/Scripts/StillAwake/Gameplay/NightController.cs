@@ -22,6 +22,8 @@ namespace StillAwake
     public sealed class GameContext
     {
         public NightSettings Settings;
+        /// <summary>Какая это ночь (уровень).</summary>
+        public NightDef Night;
         public RoomState Room;
         public Inventory Inventory;
         public Phone Phone;
@@ -42,6 +44,8 @@ namespace StillAwake
         public Action Restart;
         /// <summary>Выход в главное меню; null — сцены меню нет в Build Settings.</summary>
         public Action ToMenu;
+        /// <summary>Перейти к следующей ночи.</summary>
+        public Action NextNight;
     }
 
     /// <summary>
@@ -59,6 +63,8 @@ namespace StillAwake
         bool firstMessageSent;
         bool debugStalker;
         bool transitioning;
+        /// <summary>Диспетчер принял вызов: в 6 утра приедет полиция.</summary>
+        bool rescueCalled;
         float nextFlicker = 45f;
         Hotspot dropTarget;
 
@@ -107,6 +113,13 @@ namespace StillAwake
             ctx.PhoneView.ReplyChosen += index => ctx.Phone.Reply(index, ClockText);
             ctx.PhoneView.MessageSubmitted += OnPlayerMessage;
             ctx.PhoneView.CallStarted += OnCallStarted;
+            ctx.PhoneView.RescueRequested += OnRescueRequested;
+            ctx.PhoneView.RescueRefused += () =>
+            {
+                Track("rescue_refused", ("clock", ClockText));
+                ctx.Subtitles.Show("Он… повесил трубку. Они не приедут. Надо перезвонить и говорить чётко.");
+            };
+            ctx.Hud.PeepholeCloseClicked += ClosePeephole;
             ctx.PhoneView.OpenChanged += _ => RefreshInputLocks();
 
             ctx.InventoryView.UseRequested += UseItem;
@@ -116,6 +129,7 @@ namespace StillAwake
 
             ctx.EndScreen.RestartClicked += () => ctx.Restart();
             ctx.EndScreen.MenuClicked += () => ctx.ToMenu?.Invoke();
+            ctx.EndScreen.NextClicked += () => ctx.NextNight?.Invoke();
             ctx.Pause.ResumeClicked += () => SetPaused(false);
             ctx.Pause.RestartClicked += () => Leave(ctx.Restart);
             ctx.Pause.MenuClicked += () => Leave(ctx.ToMenu);
@@ -136,6 +150,7 @@ namespace StillAwake
             RefreshInputLocks();
             UpdateHint();
             Sfx.StartAmbient();
+            ctx.Hud.ShowToast("Ночь " + ctx.Night.Number + ". " + ctx.Night.Title + "\n" + ctx.Night.Intro, 6f);
 
             if (ctx.Backend != null)
             {
@@ -155,8 +170,10 @@ namespace StillAwake
         void Update()
         {
             HandleHotkeys();
-            // Курсор над телефоном, хотбаром или меню, или тащат предмет — взгляд стоит на месте.
-            ctx.Camera.Hold = ctx.PhoneView.PointerOver || ctx.InventoryView.PointerOver || ctx.Menu.PointerOver || ctx.InventoryView.IsDragging;
+            // Курсор над телефоном или хотбаром, открыто меню объекта, тащат предмет, смотрят в глазок — взгляд стоит на месте.
+            ctx.Camera.Hold = ctx.PhoneView.PointerOver || ctx.InventoryView.PointerOver || ctx.Menu.IsOpen ||
+                              ctx.InventoryView.IsDragging || ctx.Hud.PeepholeOpen;
+            ctx.Hud.SetCloseUpStalker(Stalker.Node == StalkerNode.Door, Stalker.Node == StalkerNode.Room);
             if (over || Paused) return;
 
             float dt = Time.deltaTime;
@@ -169,7 +186,27 @@ namespace StillAwake
             ctx.PhoneView.SetClock(ClockText);
             ctx.Hud.SetDebug(debugStalker ? DebugText() : null);
 
-            if (Elapsed >= Settings.NightSeconds) Win();
+            if (Elapsed >= Settings.NightSeconds) Dawn();
+        }
+
+        /// <summary>
+        /// 6 утра. Вызвала помощь — приезжает полиция. Нет — сталкер не уходит с рассветом: последний визит,
+        /// из которого живой выйдет только один из них.
+        /// </summary>
+        void Dawn()
+        {
+            if (rescueCalled)
+            {
+                Win();
+                return;
+            }
+            if (Stalker.FinalAssault) return;
+            Track("final_assault", ("node", Stalker.Node.ToString()));
+            Stalker.StartFinalAssault();
+            ctx.Hud.ShowToast("6 AM. Рассвет. Но шаги на лестнице не стихают...", 4f);
+            ctx.Subtitles.Show("Никто не приедет. Я никого не позвала.");
+            if (Room.LightOn) StartCoroutine(Flicker());
+            UpdateHint();
         }
 
         void UpdatePhase()
@@ -198,7 +235,8 @@ namespace StillAwake
         {
             if (over)
             {
-                if (GameInput.KeyPressed(Key.R) || GameInput.KeyPressed(Key.Enter)) ctx.Restart();
+                if (GameInput.KeyPressed(Key.N) && ctx.EndScreen.NextVisible) ctx.NextNight?.Invoke();
+                else if (GameInput.KeyPressed(Key.R) || GameInput.KeyPressed(Key.Enter)) ctx.Restart();
                 else if (GameInput.KeyPressed(Key.Escape)) ctx.ToMenu?.Invoke();
                 return;
             }
@@ -211,8 +249,10 @@ namespace StillAwake
 
             if (GameInput.KeyPressed(Key.Escape))
             {
-                if (ctx.Menu.IsOpen) ctx.Menu.Close();
-                else if (ctx.PhoneView.IsOpen) ctx.PhoneView.Close();
+                // Esc — всегда пауза, из любого приложения телефона; телефон остаётся как был.
+                // Назад по приложениям — кнопка «домой» внизу телефона.
+                if (ctx.Hud.PeepholeOpen) ClosePeephole();
+                else if (ctx.Menu.IsOpen) ctx.Menu.Close();
                 else SetPaused(true);
                 return;
             }
@@ -222,13 +262,31 @@ namespace StillAwake
 
             if (GameInput.Pressed(GameAction.Phone)) ctx.PhoneView.Toggle();
             if (GameInput.Pressed(GameAction.PhoneHide)) ctx.PhoneView.ToggleHidden();
+            // Кнопки «над телефоном»: M3 прячет его целиком (как H), ПКМ опускает до четверти. Их обычное действие
+            // (закрепить камеру) при этом не срабатывает.
+            bool phoneClicked = false;
+            if (ctx.PhoneView.PointerOver && GameInput.Pressed(GameAction.PhoneHideOnHover))
+            {
+                ctx.PhoneView.ToggleHidden();
+                phoneClicked = true;
+            }
+            else if (ctx.PhoneView.PointerOver && GameInput.Pressed(GameAction.PhonePeekOnHover))
+            {
+                ctx.PhoneView.TogglePeek();
+                phoneClicked = true;
+            }
             if (GameInput.Pressed(GameAction.Inventory)) ctx.InventoryView.Toggle();
-            if (GameInput.Pressed(GameAction.CameraLock)) SetCameraLocked(!ctx.Camera.Locked);
-            if (GameInput.Pressed(GameAction.Unhide)) LeaveHiding();
+            if (GameInput.Pressed(GameAction.CameraLock) && !phoneClicked) SetCameraLocked(!ctx.Camera.Locked);
+            if (GameInput.Pressed(GameAction.Unhide))
+            {
+                if (ctx.Hud.PeepholeOpen) ClosePeephole();
+                else LeaveHiding();
+            }
             if (GameInput.Pressed(GameAction.DebugAreas)) ctx.RoomView.SetDebugHotspots(!ctx.RoomView.DebugHotspots);
             if (GameInput.Pressed(GameAction.DebugStalker)) debugStalker = !debugStalker;
 
             if (GameInput.Pressed(GameAction.Sofa)) ReturnToSofa();
+            if (GameInput.Pressed(GameAction.Window)) GoToWindow();
             if (GameInput.Pressed(GameAction.TurnLeft)) Turn(false);
             if (GameInput.Pressed(GameAction.TurnRight)) Turn(true);
         }
@@ -243,10 +301,11 @@ namespace StillAwake
         {
             bool hidden = Room.Hidden != HideSpot.None;
             bool blocked = over || Paused || transitioning;
-            ctx.Picker.InputEnabled = !blocked && !hidden;
+            bool peephole = ctx.Hud.PeepholeOpen;
+            ctx.Picker.InputEnabled = !blocked && !hidden && !peephole;
             ctx.Camera.LookEnabled = !blocked && !hidden;
             ctx.Camera.LockCentered = hidden;
-            ctx.Hud.SetTurnVisible(!hidden && !over);
+            ctx.Hud.SetTurnVisible(!hidden && !peephole && !over);
         }
 
         /// <summary>Пауза: время ночи и сталкер замирают (timeScale = 0), интерфейс живёт по реальному времени.</summary>
@@ -283,6 +342,13 @@ namespace StillAwake
             if (over || Room.Hidden != HideSpot.None) return;
             ViewDef view = ctx.RoomView.CurrentDef;
             GoTo(right ? view.Right : view.Left, null, turn: true, right: right);
+        }
+
+        /// <summary>Подойти к окну (W) с любого места комнаты.</summary>
+        void GoToWindow()
+        {
+            if (over || Room.Hidden != HideSpot.None || ctx.RoomView.Current == ViewId.Window) return;
+            GoTo(ViewId.Window, null);
         }
 
         void ReturnToSofa()
@@ -406,6 +472,11 @@ namespace StillAwake
             ctx.Hud.ShowHidden(spot);
             Track("hide", ("spot", spot.ToString()), ("stalker", Stalker.Node.ToString()));
             MakeNoise(4f);
+            if (ctx.Phone.Ring == RingMode.Sound && !ringHintShown)
+            {
+                ringHintShown = true;
+                ctx.Hud.ShowToast("Звук телефона включён — уведомление выдаст тебя.\nТелефон → Настройки → «Без звука».", 5f);
+            }
             RefreshInputLocks();
             UpdateHint();
             return null;
@@ -427,10 +498,32 @@ namespace StillAwake
         void OnCallStarted(string number)
         {
             Track("call", ("number", number), ("hidden", Room.Hidden.ToString()));
-            bool emergency = number == "112" || number == "102" || number == "911" || number == "02";
-            ctx.Subtitles.Show(emergency ? "Ну же… Только что было три деления связи." : "Возьми трубку. Пожалуйста, возьми трубку.");
+            bool emergency = DialerApp.IsEmergency(number);
+            ctx.Subtitles.Show(emergency ? "Ответьте. Ну же, ответьте…" : "Возьми трубку. Пожалуйста, возьми трубку.");
             // Голос в укрытии слышно.
             if (Room.Hidden != HideSpot.None) MakeNoise(6f);
+        }
+
+        /// <summary>Диспетчер принял вызов. Свободных машин нет — помощь будет к шести утра.</summary>
+        void OnRescueRequested()
+        {
+            if (over) return;
+            if (Stalker.FinalAssault)
+            {
+                ctx.Subtitles.Show("Слишком поздно. Они не успеют.");
+                return;
+            }
+            rescueCalled = true;
+            Track("rescue_called", ("clock", ClockText));
+            ctx.Hud.ShowToast("Вызов принят. Помощь — не позднее 6 AM.", 4f);
+            UpdateHint();
+        }
+
+        void ClosePeephole()
+        {
+            if (!ctx.Hud.PeepholeOpen) return;
+            ctx.Hud.ShowPeephole(false);
+            RefreshInputLocks();
         }
 
         // ------------------------------------------------------------------ свет
@@ -449,10 +542,13 @@ namespace StillAwake
             Sfx.Buzz();
             foreach (float brightness in new[] { 0.15f, 1f, 0.05f, 0.75f, 0.25f })
             {
+                // В темноте между вспышками силуэт оказывается в другом месте — и чуть ближе.
+                if (brightness < 0.2f) ctx.StalkerView.Lurch();
                 ctx.RoomView.SetFlicker(brightness);
                 yield return new WaitForSeconds(Random.Range(0.04f, 0.14f));
             }
             ctx.RoomView.SetFlicker(1f);
+            ctx.StalkerView.Settle();
         }
 
         // ------------------------------------------------------------------ сталкер
@@ -475,6 +571,11 @@ namespace StillAwake
 
         void OnStalkerEntered()
         {
+            if (Room.Hidden == HideSpot.Wardrobe && ctx.Inventory.Has(ItemCatalog.Shard))
+            {
+                SelfDefense();
+                return;
+            }
             ctx.Hud.ShowToast("Дверь открылась. Шаги в комнате...");
             Track("stalker_entered", ("hidden", Room.Hidden.ToString()), ("visit", Stalker.Visits));
             OnRoomMessage();
@@ -493,21 +594,59 @@ namespace StillAwake
             if (over) return;
 
             bool hidden = Room.Hidden != HideSpot.None;
-            if (Stalker.Node == StalkerNode.Room) ctx.Hud.SetHint("Он в комнате. Не шевелись.", true);
+            if (Stalker.FinalAssault && Stalker.Node != StalkerNode.Room) ctx.Hud.SetHint("6 AM. Он идёт за тобой. Никто не приедет.", true);
+            else if (Stalker.Node == StalkerNode.Room) ctx.Hud.SetHint("Он в комнате. Не шевелись.", true);
             else if (Stalker.Node == StalkerNode.Door) ctx.Hud.SetHint("Кто-то у двери! Спрячься: шкаф или под кровать.", true);
             else if (hidden) ctx.Hud.SetHint("Ты в укрытии. " + KeyBindings.Short(GameAction.Unhide) + " — вылезти.", false);
             else if (Phase == NightPhase.Calm) ctx.Hud.SetHint("Ночь. Осмотрись в комнате.", false);
+            else if (rescueCalled) ctx.Hud.SetHint("Помощь едет. Продержись до 6 AM.", false);
             else ctx.Hud.SetHint("Продержись до 6 AM.", false);
         }
 
+        /// <summary>Концовка «Синие огни»: вызвала помощь и дожила до шести.</summary>
         void Win()
         {
-            Track("night_end", ("result", "dawn"), ("visits", Stalker.Visits), ("clock", "06:00"));
+            Track("night_end", ("result", "police"), ("visits", Stalker.Visits), ("clock", "06:00"));
             Finish();
             ctx.Hud.SetClock("6 AM");
-            ctx.EndScreen.Show("6 AM. Рассвет.",
-                "Ты пережила эту ночь. Визитов сталкера: " + Stalker.Visits + ".\n\n" +
-                "Последнее сообщение: «Спокойной ночи. Я вернусь.»", true);
+            ctx.EndScreen.Show("Синие огни",
+                "Ровно в шесть по потолку поползли синие и красные отсветы. Хлопнули дверцы машин, по лестнице загрохотали шаги — " +
+                "на этот раз чужие, тяжёлые, спешащие. Его взяли у подъезда: он стоял под твоим окном и даже не пытался бежать.\n\n" +
+                "Тебя вывели под руку, укутали в чьё-то пальто. Ты смотрела, как его, в наручниках, сажают в машину и увозят в участок. " +
+                "Он обернулся всего один раз.\n\nВизитов за ночь: " + Stalker.Visits + "." + Survived(), true, CanGoNext);
+        }
+
+        /// <summary>Пережила ночь: открыть следующую. Строка для текста концовки.</summary>
+        string Survived()
+        {
+            bool opened = Nights.Complete(ctx.Night.Number);
+            return opened ? "\n\nОткрыта ночь " + (ctx.Night.Number + 1) + "." : "";
+        }
+
+        bool CanGoNext => ctx.NextNight != null && Nights.HasNext(ctx.Night.Number) && Nights.IsUnlocked(ctx.Night.Number + 1);
+
+        /// <summary>
+        /// Осколок и шкаф: он открыл дверцу — и не ожидал удара. Если полиция уже ехала, её найдут рядом с телом;
+        /// если нет — никто никогда не узнает, что случилось этой ночью.
+        /// </summary>
+        void SelfDefense()
+        {
+            Track("night_end", ("result", rescueCalled ? "killed_prison" : "killed_free"), ("visits", Stalker.Visits), ("clock", ClockText));
+            Finish();
+            if (rescueCalled)
+            {
+                ctx.EndScreen.Show("Цена тишины",
+                    "Дверца шкафа скрипнула, и в щель упал свет. Ты не помнишь, как рука сама нашла осколок, — помнишь только, " +
+                    "что он больше не встал. Стекло порезало ладонь до кости, но боли не было. Была тишина.\n\n" +
+                    "Полиция приехала к шести, как и обещали. Тебя нашли на полу, рядом с ним. Наручники щёлкнули так же тихо, " +
+                    "как замок в твоей двери. Следствие, суд, «превышение пределов необходимой обороны». Теперь между тобой и миром — решётка. " +
+                    "Но по ночам ты, наконец, спишь.", false);
+                return;
+            }
+            ctx.EndScreen.Show("Утро без него",
+                "Дверца шкафа скрипнула, и в щель упал свет. Ты ударила раньше, чем успела испугаться. " +
+                "Один раз. Этого хватило.\n\nКогда рассвело, в комнате было очень тихо. Никто не звонил в дверь, никто не задавал вопросов — " +
+                "ты ведь никого не звала. Телефон больше не вибрировал.\n\nТы выжила. И это — единственное, что теперь имеет значение." + Survived(), true, CanGoNext);
         }
 
         void Lose(string reason)
@@ -523,6 +662,7 @@ namespace StillAwake
             over = true;
             if (Stalker.Active) Stalker.Leave();
             ctx.Menu.Close();
+            ctx.Hud.ShowPeephole(false);
             ctx.Subtitles.Clear();
             ctx.PhoneView.Close();
             ctx.PhoneView.SetTyping(false);
@@ -549,6 +689,7 @@ namespace StillAwake
             "Фаза: " + Phase + ", визитов: " + Stalker.Visits + ", " + Elapsed.ToString("0") + "/" + Settings.NightSeconds.ToString("0") + " c" +
             ", " + ClockText + (ModelOnline ? ", модель" : ", скрипт") + "\n" +
             "Свет: " + (Room.LightOn ? "вкл" : "выкл") + ", шторы: " + (Room.CurtainsClosed ? "задёрнуты" : "открыты") +
-            ", дверь: " + (Room.DoorLocked ? "заперта" : "открыта") + ", укрытие: " + Room.Hidden;
+            ", дверь: " + (Room.DoorLocked ? "заперта" : "открыта") + ", укрытие: " + Room.Hidden + "\n" +
+            "Помощь: " + (rescueCalled ? "вызвана" : "нет") + (Stalker.FinalAssault ? ", ФИНАЛЬНЫЙ ВИЗИТ" : "");
     }
 }

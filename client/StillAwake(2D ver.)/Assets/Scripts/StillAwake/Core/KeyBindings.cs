@@ -12,8 +12,13 @@ namespace StillAwake
         TurnLeft,
         TurnRight,
         Sofa,
+        Window,
         Phone,
         PhoneHide,
+        /// <summary>Спрятать телефон целиком кнопкой, пока курсор над ним (по умолчанию M3).</summary>
+        PhoneHideOnHover,
+        /// <summary>Опустить телефон до четверти кнопкой, пока курсор над ним (по умолчанию ПКМ).</summary>
+        PhonePeekOnHover,
         Inventory,
         CameraLock,
         Unhide,
@@ -23,13 +28,13 @@ namespace StillAwake
     }
 
     /// <summary>
-    /// Клавиши действий: по две на действие, хранятся в PlayerPrefs (sa.keys.*). Кроме клавиатуры можно назначить
-    /// кнопки мыши (кроме левой — она для кликов). Esc не переназначается — это всегда «назад» и пауза.
-    /// Одна клавиша — одно действие: при назначении она снимается с другого.
+    /// Клавиши действий: сколько угодно на действие, хранятся в PlayerPrefs (sa.keys.*). Кроме клавиатуры можно
+    /// назначить кнопки мыши (кроме левой — она для кликов). Esc не переназначается — это всегда «назад» и пауза.
+    /// Одна клавиша — одно действие: при назначении она снимается с другого. Исключение — действия «над телефоном»:
+    /// они срабатывают только с курсором над телефоном и могут делить клавишу с обычными (M3 — и камера, и телефон).
     /// </summary>
     public static class KeyBindings
     {
-        public const int Slots = 2;
         const string Prefix = "sa.keys.";
 
         // Кнопки мыши живут в том же Key, но за пределами значений клавиатуры.
@@ -59,11 +64,16 @@ namespace StillAwake
             public readonly GameAction Action;
             public readonly string Title;
             public readonly Key[] Defaults;
+            /// <summary>Срабатывает только с курсором над телефоном.</summary>
+            public readonly bool OverPhone;
 
-            public Definition(GameAction action, string title, params Key[] defaults)
+            public Definition(GameAction action, string title, params Key[] defaults) : this(action, title, false, defaults) { }
+
+            public Definition(GameAction action, string title, bool overPhone, params Key[] defaults)
             {
                 Action = action;
                 Title = title;
+                OverPhone = overPhone;
                 Defaults = defaults;
             }
         }
@@ -73,8 +83,11 @@ namespace StillAwake
             new Definition(GameAction.TurnLeft, "Повернуться влево", Key.A, Key.LeftArrow),
             new Definition(GameAction.TurnRight, "Повернуться вправо", Key.D, Key.RightArrow),
             new Definition(GameAction.Sofa, "Вернуться на диван", Key.S, Key.Backspace),
+            new Definition(GameAction.Window, "Подойти к окну", Key.W),
             new Definition(GameAction.Phone, "Телефон: открыть / свернуть", Key.Tab, Key.P),
             new Definition(GameAction.PhoneHide, "Телефон: спрятать / показать", Key.H),
+            new Definition(GameAction.PhoneHideOnHover, "Телефон: спрятать целиком (курсор над ним)", true, MouseMiddle),
+            new Definition(GameAction.PhonePeekOnHover, "Телефон: опустить до 25% (курсор над ним)", true, MouseRight),
             new Definition(GameAction.Inventory, "Инвентарь: показать / скрыть", Key.I),
             new Definition(GameAction.CameraLock, "Закрепить камеру", MouseMiddle, Key.C),
             new Definition(GameAction.Unhide, "Вылезти из укрытия", Key.Space),
@@ -85,11 +98,12 @@ namespace StillAwake
 
         public static event Action Changed;
 
-        static readonly Dictionary<GameAction, Key[]> current = new Dictionary<GameAction, Key[]>();
+        static readonly Dictionary<GameAction, List<Key>> current = new Dictionary<GameAction, List<Key>>();
 
         public static Definition Get(GameAction action) => Array.Find(All, d => d.Action == action);
 
-        public static Key GetKey(GameAction action, int slot) => Keys(action)[slot];
+        /// <summary>Все клавиши действия по порядку.</summary>
+        public static IReadOnlyList<Key> GetKeys(GameAction action) => Keys(action);
 
         public static bool Pressed(GameAction action)
         {
@@ -124,20 +138,39 @@ namespace StillAwake
 
         public static bool CanBind(Key key) => key != Key.None && key != Key.Escape && (IsMouse(key) || Enum.IsDefined(typeof(Key), key));
 
-        /// <summary>Назначить клавишу (Key.None — очистить). Та же клавиша снимается с других действий.</summary>
+        /// <summary>
+        /// Назначить клавишу в позицию slot: slot = числу клавиш — добавить новую, Key.None — убрать эту.
+        /// Та же клавиша снимается с других действий того же вида (обычных или «над телефоном»).
+        /// </summary>
         public static void Set(GameAction action, int slot, Key key)
         {
-            if (key != Key.None && !CanBind(key)) return;
-            if (key != Key.None)
+            List<Key> keys = Keys(action);
+            if (key == Key.None)
             {
-                foreach (Definition def in All)
-                {
-                    Key[] keys = Keys(def.Action);
-                    for (int i = 0; i < Slots; i++)
-                        if (keys[i] == key && (def.Action != action || i != slot)) keys[i] = Key.None;
-                }
+                if (slot >= 0 && slot < keys.Count) keys.RemoveAt(slot);
+                Save();
+                return;
             }
-            Keys(action)[slot] = key;
+            if (!CanBind(key)) return;
+
+            bool overPhone = Get(action)?.OverPhone ?? false;
+            foreach (Definition def in All)
+                if (def.Action != action && def.OverPhone == overPhone) Keys(def.Action).Remove(key);
+
+            int existing = keys.IndexOf(key);
+            if (slot >= keys.Count)
+            {
+                if (existing < 0) keys.Add(key);
+            }
+            else if (existing < 0 || existing == slot)
+            {
+                keys[slot] = key;
+            }
+            else
+            {
+                // Клавиша уже есть у этого действия в другой позиции — просто убираем заменяемую.
+                keys.RemoveAt(slot);
+            }
             Save();
         }
 
@@ -190,22 +223,21 @@ namespace StillAwake
             return name;
         }
 
-        static Key[] Keys(GameAction action)
+        static List<Key> Keys(GameAction action)
         {
-            if (current.TryGetValue(action, out Key[] keys)) return keys;
+            if (current.TryGetValue(action, out List<Key> keys)) return keys;
 
-            keys = new Key[Slots];
+            keys = new List<Key>();
             Definition def = Get(action);
             // GetString без ключа возвращает "", а не default, — поэтому HasKey.
             if (PlayerPrefs.HasKey(Prefix + action))
             {
-                string[] parts = PlayerPrefs.GetString(Prefix + action).Split(',');
-                for (int i = 0; i < Slots && i < parts.Length; i++)
-                    keys[i] = Enum.TryParse(parts[i], out Key key) && CanBind(key) ? key : Key.None;
+                foreach (string part in PlayerPrefs.GetString(Prefix + action).Split(','))
+                    if (Enum.TryParse(part, out Key key) && CanBind(key) && !keys.Contains(key)) keys.Add(key);
             }
             else if (def != null)
             {
-                for (int i = 0; i < Slots && i < def.Defaults.Length; i++) keys[i] = def.Defaults[i];
+                keys.AddRange(def.Defaults);
             }
             current[action] = keys;
             return keys;
@@ -215,8 +247,8 @@ namespace StillAwake
         {
             foreach (Definition def in All)
             {
-                Key[] keys = Keys(def.Action);
-                PlayerPrefs.SetString(Prefix + def.Action, string.Join(",", Array.ConvertAll(keys, k => k.ToString())));
+                List<Key> keys = Keys(def.Action);
+                PlayerPrefs.SetString(Prefix + def.Action, string.Join(",", keys.ConvertAll(k => k.ToString())));
             }
             PlayerPrefs.Save();
             Changed?.Invoke();

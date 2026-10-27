@@ -28,6 +28,12 @@ type Session struct {
 	State          json.RawMessage `json:"state"`
 	CreatedAt      string          `json:"created_at"`
 	UpdatedAt      string          `json:"updated_at"`
+	// Сводка для списка сессий (поиск и топы в панели); в карточке одной сессии не заполняется.
+	Messages int64  `json:"messages,omitempty"`
+	Events   int64  `json:"events,omitempty"`
+	Requests int64  `json:"requests,omitempty"`
+	Result   string `json:"result,omitempty"`
+	Platform string `json:"platform,omitempty"`
 }
 
 type Message struct {
@@ -44,6 +50,9 @@ type Installation struct {
 	ID        string          `json:"id"`
 	Metadata  json.RawMessage `json:"metadata"`
 	CreatedAt string          `json:"created_at"`
+	// Сводка для списка установок: сколько ночей сыграно и когда последняя.
+	Sessions    int64  `json:"sessions"`
+	LastSession string `json:"last_session_at,omitempty"`
 }
 
 type Event struct {
@@ -112,6 +121,14 @@ func (s *Store) migrate(ctx context.Context) error {
 			if _, err := s.DB.ExecContext(ctx, fmt.Sprintf("ALTER TABLE llm_requests ADD COLUMN %s %s", c.name, c.ddl)); err != nil {
 				return err
 			}
+		}
+	}
+	// Телефоны больше не храним: в старых базах колонка остаётся, но номера стираются.
+	if has, err := s.hasColumn(ctx, "users", "phone"); err != nil {
+		return err
+	} else if has {
+		if _, err := s.DB.ExecContext(ctx, `UPDATE users SET phone = NULL WHERE phone IS NOT NULL`); err != nil {
+			return err
 		}
 	}
 	_, err := s.DB.ExecContext(ctx, `
@@ -239,39 +256,54 @@ func (s *Store) ListSessions(ctx context.Context, limit int) ([]Session, error) 
 	return s.SearchSessions(ctx, "", "", limit)
 }
 
+// sessionSummary — счётчики и итог ночи для списка: итог — result последнего night_end, «abandoned», если ночь
+// бросили, иначе пусто (ещё идёт или игра закрылась). json_valid — на случай битого payload.
+const sessionSummary = `,
+	(SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id),
+	(SELECT COUNT(*) FROM events e WHERE e.session_id = s.id),
+	(SELECT COUNT(*) FROM llm_requests l WHERE l.session_id = s.id),
+	COALESCE((SELECT json_extract(e.payload_json, '$.result') FROM events e
+	          WHERE e.session_id = s.id AND e.event_type = 'night_end' AND json_valid(e.payload_json) ORDER BY e.id DESC LIMIT 1),
+	         (SELECT 'abandoned' FROM events e WHERE e.session_id = s.id AND e.event_type = 'night_abandoned' LIMIT 1), ''),
+	COALESCE((SELECT json_extract(i.metadata_json, '$.platform') FROM installations i
+	          WHERE i.id = s.installation_id AND json_valid(i.metadata_json)), '')`
+
 func (s *Store) SearchSessions(ctx context.Context, query, installationID string, limit int) ([]Session, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 || limit > 2000 {
 		limit = 100
 	}
-	q := `SELECT id, installation_id, game_version, scenario, state_json, created_at, updated_at FROM sessions`
+	q := `SELECT s.id, s.installation_id, s.game_version, s.scenario, s.state_json, s.created_at, s.updated_at` + sessionSummary + ` FROM sessions s`
 	var where []string
 	var args []any
 	if installationID != "" {
-		where = append(where, `installation_id=?`)
+		where = append(where, `s.installation_id=?`)
 		args = append(args, installationID)
 	}
 	if strings.TrimSpace(query) != "" {
 		like := "%" + strings.TrimSpace(query) + "%"
-		where = append(where, `(id LIKE ? OR installation_id LIKE ? OR scenario LIKE ? OR game_version LIKE ?)`)
+		where = append(where, `(s.id LIKE ? OR s.installation_id LIKE ? OR s.scenario LIKE ? OR s.game_version LIKE ?)`)
 		args = append(args, like, like, like, like)
 	}
 	if len(where) > 0 {
 		q += ` WHERE ` + strings.Join(where, " AND ")
 	}
-	q += ` ORDER BY updated_at DESC LIMIT ?`
+	q += ` ORDER BY s.updated_at DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.DB.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Session
+	out := []Session{}
 	for rows.Next() {
 		var v Session
 		var state string
-		if err := rows.Scan(&v.ID, &v.InstallationID, &v.GameVersion, &v.Scenario, &state, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		var result, platform sql.NullString
+		if err := rows.Scan(&v.ID, &v.InstallationID, &v.GameVersion, &v.Scenario, &state, &v.CreatedAt, &v.UpdatedAt,
+			&v.Messages, &v.Events, &v.Requests, &result, &platform); err != nil {
 			return nil, err
 		}
+		v.Result, v.Platform = result.String, platform.String
 		v.State = json.RawMessage(state)
 		out = append(out, v)
 	}
@@ -311,28 +343,31 @@ func (s *Store) ListInstallations(ctx context.Context, limit int) ([]Installatio
 }
 
 func (s *Store) SearchInstallations(ctx context.Context, query string, limit int) ([]Installation, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 || limit > 2000 {
 		limit = 100
 	}
-	q := `SELECT id, metadata_json, created_at FROM installations`
+	q := `SELECT i.id, i.metadata_json, i.created_at,
+	             (SELECT COUNT(*) FROM sessions s WHERE s.installation_id = i.id),
+	             COALESCE((SELECT MAX(s.updated_at) FROM sessions s WHERE s.installation_id = i.id), '')
+	      FROM installations i`
 	var args []any
 	if strings.TrimSpace(query) != "" {
 		like := "%" + strings.TrimSpace(query) + "%"
-		q += ` WHERE id LIKE ? OR metadata_json LIKE ?`
+		q += ` WHERE i.id LIKE ? OR i.metadata_json LIKE ?`
 		args = append(args, like, like)
 	}
-	q += ` ORDER BY created_at DESC LIMIT ?`
+	q += ` ORDER BY i.created_at DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.DB.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Installation
+	out := []Installation{}
 	for rows.Next() {
 		var v Installation
 		var meta string
-		if err := rows.Scan(&v.ID, &meta, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &meta, &v.CreatedAt, &v.Sessions, &v.LastSession); err != nil {
 			return nil, err
 		}
 		v.Metadata = json.RawMessage(meta)
@@ -398,7 +433,7 @@ func (s *Store) ListEvents(ctx context.Context, sessionID string, limit int) ([]
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Event
+	out := []Event{}
 	for rows.Next() {
 		var v Event
 		var payload string

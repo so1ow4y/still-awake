@@ -50,7 +50,8 @@ export function LoginScreen({ expired = false }) {
         <${Field} label="Пароль"><${PasswordInput} value=${password} onInput=${setPassword}/><//>
         <${ErrorText} error=${error}/>
         <button type="submit" class="btn primary wide" disabled=${busy || !username.trim() || !password}>${busy ? 'Входим…' : 'Войти'}</button>
-        <p class="muted small login-note">Аккаунты сотрудников создаёт администратор: логин и пароль, без почты.
+        <p class="muted small login-note">Игроки входят тем же логином и паролем, что в игре, и видят свои ночи.
+          Аккаунты сотрудников создаёт администратор: логин и пароль, без почты.
           Первый супер-админ — из <code>ADMIN_USERNAME</code> / <code>ADMIN_PASSWORD</code> в .env, иначе логин <code>admin</code>
           и пароль из консоли сервера.</p>
       </form>

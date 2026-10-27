@@ -100,6 +100,12 @@ func (s *Server) actor(r *http.Request) (*Actor, error) {
 	if token == "" {
 		return nil, nil
 	}
+	return s.actorByToken(r, token, viaCookie)
+}
+
+// actorByToken — сессия по самому токену (после входа — по только что выданному, а не по cookie запроса:
+// в браузере может остаться старая недействительная sa_session, и вход с верным паролем отвечал бы «Нужно войти»).
+func (s *Server) actorByToken(r *http.Request, token string, viaCookie bool) (*Actor, error) {
 	nowTime := time.Now().UTC()
 	sess, err := s.store.ActiveSessionByToken(r.Context(), auth.TokenHash(token), nowTime.Format(time.RFC3339Nano))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -266,8 +272,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	record(user.ID, true, "")
 	s.setSessionCookie(w, r, token, int(s.cfg.SessionTTL.Seconds()))
 
-	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
-	a, err := s.actor(r)
+	a, err := s.actorByToken(r, token, true)
 	if err != nil || a == nil {
 		writeAPIError(w, errUnauthorized)
 		return
@@ -295,7 +300,7 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request, a *Actor) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.store.UpdateUserProfile(r.Context(), a.User.ID, cleanName(in.DisplayName), nil); err != nil {
+	if err := s.store.UpdateUserProfile(r.Context(), a.User.ID, cleanName(in.DisplayName)); err != nil {
 		writeAPIError(w, err)
 		return
 	}

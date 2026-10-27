@@ -45,6 +45,8 @@ namespace StillAwake
         Text title;
         Func<bool> pointerOnTarget;
         float outsideFor;
+        /// <summary>Точка объекта в мире: меню «приколото» к ней и не уезжает вместе с камерой.</summary>
+        Vector3 anchor;
 
         public static ActionMenu Create(RectTransform canvas)
         {
@@ -107,6 +109,8 @@ namespace StillAwake
 
             panel.gameObject.SetActive(true);
             LayoutRebuilder.ForceRebuildLayoutImmediate(panel);
+            Camera cam = Camera.main;
+            anchor = cam != null ? cam.ScreenToWorldPoint(screenPoint) : (Vector3)screenPoint;
             Place(screenPoint);
             outsideFor = 0f;
         }
@@ -131,6 +135,14 @@ namespace StillAwake
             if (position.x + size.x > half.x - 10f) position.x = local.x - 14f - size.x;
             if (position.y - size.y < -half.y + 10f) position.y = -half.y + 10f + size.y;
             panel.anchoredPosition = position;
+        }
+
+        // После камеры: позиция меню пересчитывается из мировой точки объекта.
+        void LateUpdate()
+        {
+            if (!IsOpen) return;
+            Camera cam = Camera.main;
+            if (cam != null) Place(cam.WorldToScreenPoint(anchor));
         }
 
         void Update()

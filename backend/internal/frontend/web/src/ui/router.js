@@ -13,6 +13,8 @@ export function parseHash() {
     param: parts[1] ? decodeURIComponent(parts[1]) : null,
     query: Object.fromEntries(new URLSearchParams(qs)),
     path: '/' + parts.join('/'),
+    /** Адрес, из которого разобран маршрут, — чтобы заметить переход, случившийся до подписки. */
+    hash: location.hash,
   };
 }
 

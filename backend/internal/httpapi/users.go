@@ -174,7 +174,6 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, a *Actor) {
 	var in struct {
 		Username    *string `json:"username"`
 		DisplayName *string `json:"display_name"`
-		Phone       *string `json:"phone"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -194,28 +193,30 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, a *Actor) {
 			return
 		}
 	}
-	if in.DisplayName != nil || in.Phone != nil {
-		name := target.DisplayName
-		if in.DisplayName != nil {
-			name = cleanName(*in.DisplayName)
-		}
-		var phone *string
-		if in.Phone != nil {
-			v := strings.TrimSpace(*in.Phone)
-			if v != "" {
-				if v, err = auth.NormalizePhone(v); err != nil {
-					writeAPIError(w, fail(http.StatusBadRequest, "VALIDATION_ERROR", err.Error()))
-					return
-				}
-			}
-			phone = &v
-		}
-		if err := s.store.UpdateUserProfile(r.Context(), target.ID, name, phone); err != nil {
+	if in.DisplayName != nil {
+		if err := s.store.UpdateUserProfile(r.Context(), target.ID, cleanName(*in.DisplayName)); err != nil {
 			writeAPIError(w, err)
 			return
 		}
 	}
 	s.respondUser(w, r, target.ID)
+}
+
+// deleteUser — удалить пользователя ниже себя по уровню (себя нельзя). ?with_data=1 — вместе с установкой игры
+// и всеми ночами игрока; без него ночи остаются в «Игровых сессиях» без владельца.
+func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, a *Actor) {
+	target, err := s.manageable(r, a, r.PathValue("id"))
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	withData := r.URL.Query().Get("with_data") == "1"
+	nights, err := s.store.DeleteUser(r.Context(), target.ID, withData)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted_sessions": nights})
 }
 
 func (s *Server) setUserPassword(w http.ResponseWriter, r *http.Request, a *Actor) {

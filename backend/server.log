@@ -1,0 +1,53 @@
+2026/10/27 23:46:23 DEV_MODE=true: первый пароль супер-админа печатается при каждом запуске. На сервере для игроков выключите.
+2026/10/27 23:46:23 
+================================================================
+DEV_MODE: первый пароль супер-админа (действует)
+  логин:  admin
+  пароль: SLNMLh2Jp2zAdAhG   (файл ./secrets/admin-password.txt)
+================================================================
+2026/10/27 23:46:23 Still Awake backend listening on 127.0.0.1:8080
+2026/10/27 23:46:23 Панель: http://127.0.0.1:8080/
+2026/10/27 23:46:24 INFO http method=GET path=/healthz
+2026/10/27 23:49:03 INFO http method=POST path=/v1/game/login
+2026/10/27 23:49:03 INFO http method=GET path=/v1/game/model
+2026/10/27 23:49:11 INFO http method=POST path=/v1/game/sessions
+2026/10/27 23:49:11 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:11 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:26 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:28 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:37 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:37 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:41 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:41 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:41 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/chat
+2026/10/27 23:49:42 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:44 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:48 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:49 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:50 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/chat
+2026/10/27 23:49:50 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:51 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:52 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:53 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:54 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/chat
+2026/10/27 23:49:57 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:49:59 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/chat
+2026/10/27 23:50:00 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:00 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:01 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:03 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:04 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:05 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:06 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:10 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:10 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:12 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:14 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:14 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:14 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:17 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:19 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:22 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:25 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:25 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events
+2026/10/27 23:50:29 INFO http method=POST path=/v1/game/sessions/sess_a57979d27b5f874aa3778cad/events

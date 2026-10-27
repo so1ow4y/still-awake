@@ -27,6 +27,7 @@ const (
 	PermUsersCreate    = "users.create"
 	PermUsersUpdate    = "users.update"
 	PermUsersBlock     = "users.block"
+	PermUsersDelete    = "users.delete"
 	PermRolesRead      = "roles.read"
 	PermRolesAssign    = "roles.assign"
 	PermRolesManage    = "roles.manage"
@@ -47,6 +48,7 @@ var Permissions = []PermissionDef{
 	{PermUsersCreate, "users", "Создание сотрудников: логин и пароль"},
 	{PermUsersUpdate, "users", "Изменение логина, имени и пароля пользователей"},
 	{PermUsersBlock, "users", "Блокировка, разблокировка и завершение сессий"},
+	{PermUsersDelete, "users", "Удаление пользователей (по желанию — вместе с ночами игрока)"},
 	{PermRolesRead, "users", "Просмотр ролей"},
 	{PermRolesAssign, "users", "Назначение ролей (только ниже своей)"},
 	{PermRolesManage, "users", "Свои роли из набора прав (только ниже своей)"},
@@ -59,7 +61,7 @@ var Permissions = []PermissionDef{
 	{PermSessionsManage, "data", "Правка и удаление игровых данных"},
 	{PermDBRead, "data", "SQL-консоль: схема и запросы на чтение"},
 	{PermDBWrite, "data", "SQL-консоль: изменяющие запросы"},
-	{PermGamePlay, "game", "Игра: аккаунт по телефону, сессии и чат"},
+	{PermGamePlay, "game", "Игра: аккаунт по логину и паролю, свои ночи и чат"},
 }
 
 const (
@@ -76,7 +78,7 @@ var SystemRoles = []RoleDef{
 		Slug: "admin", Name: "Администратор", Priority: 80,
 		Description: "Сотрудники и игроки, роли ниже своей, модель и промпт, игровые данные. SQL — только чтение.",
 		Permissions: []string{
-			PermUsersRead, PermUsersCreate, PermUsersUpdate, PermUsersBlock,
+			PermUsersRead, PermUsersCreate, PermUsersUpdate, PermUsersBlock, PermUsersDelete,
 			PermRolesRead, PermRolesAssign, PermRolesManage, PermLoginsRead,
 			PermLLMSettings, PermLLMPrompt, PermLLMDebug,
 			PermAnalyticsRead, PermSessionsRead, PermSessionsManage, PermDBRead,
@@ -99,7 +101,7 @@ var SystemRoles = []RoleDef{
 	},
 	{
 		Slug: RolePlayer, Name: "Игрок", Priority: 10,
-		Description: "Аккаунт из игры: регистрация по номеру телефона, игровые сессии и чат.",
+		Description: "Аккаунт из игры: регистрация по логину и паролю, свои ночи и чат.",
 		Permissions: []string{PermGamePlay},
 	},
 }

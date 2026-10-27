@@ -69,12 +69,12 @@ CREATE INDEX IF NOT EXISTS idx_llm_requests_session_id ON llm_requests(session_i
 CREATE INDEX IF NOT EXISTS idx_llm_requests_installation_id ON llm_requests(installation_id, id);
 CREATE INDEX IF NOT EXISTS idx_llm_requests_status_created_at ON llm_requests(status, created_at);
 
--- Пользователи: сотрудники панели (логин и пароль задаёт администратор) и игроки (регистрация из игры по телефону).
+-- Пользователи: сотрудники панели (логин и пароль задаёт администратор) и игроки (регистрация из игры: свой логин
+-- и пароль). Телефона нет: в старых базах колонка phone остаётся (у неё UNIQUE — SQLite её не удалит), но очищается.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   username TEXT NOT NULL UNIQUE COLLATE NOCASE,
   display_name TEXT NOT NULL DEFAULT '',
-  phone TEXT UNIQUE,
   kind TEXT NOT NULL DEFAULT 'staff',
   password_hash TEXT NOT NULL DEFAULT '',
   must_change_password INTEGER NOT NULL DEFAULT 0,

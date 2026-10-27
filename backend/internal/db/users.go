@@ -31,7 +31,6 @@ type User struct {
 	ID                 string    `json:"id"`
 	Username           string    `json:"username"`
 	DisplayName        string    `json:"display_name"`
-	Phone              string    `json:"phone,omitempty"`
 	Kind               string    `json:"kind"`
 	Status             string    `json:"status"`
 	BlockedReason      string    `json:"blocked_reason,omitempty"`
@@ -375,7 +374,6 @@ func (s *Store) UserAccess(ctx context.Context, userID string) (map[string]bool,
 type NewUser struct {
 	Username           string
 	DisplayName        string
-	Phone              string
 	Kind               string
 	PasswordHash       string
 	MustChangePassword bool
@@ -392,16 +390,12 @@ func (s *Store) CreateUser(ctx context.Context, in NewUser) (User, error) {
 	defer tx.Rollback()
 	id := auth.NewID("usr")
 	ts := now()
-	var phone any
-	if in.Phone != "" {
-		phone = in.Phone
-	}
 	if in.Kind == "" {
 		in.Kind = KindStaff
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO users(id, username, display_name, phone, kind, password_hash, must_change_password, status, installation_id, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		id, in.Username, in.DisplayName, phone, in.Kind, in.PasswordHash, boolInt(in.MustChangePassword), StatusActive, in.InstallationID, ts, ts); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO users(id, username, display_name, kind, password_hash, must_change_password, status, installation_id, created_at, updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		id, in.Username, in.DisplayName, in.Kind, in.PasswordHash, boolInt(in.MustChangePassword), StatusActive, in.InstallationID, ts, ts); err != nil {
 		if isUnique(err) {
 			return User{}, ErrConflict
 		}
@@ -419,13 +413,13 @@ func (s *Store) CreateUser(ctx context.Context, in NewUser) (User, error) {
 	return s.GetUser(ctx, id)
 }
 
-const userColumns = `u.id, u.username, u.display_name, COALESCE(u.phone, ''), u.kind, u.status, u.blocked_reason, u.must_change_password,
+const userColumns = `u.id, u.username, u.display_name, u.kind, u.status, u.blocked_reason, u.must_change_password,
 	u.password_hash, u.installation_id, u.created_at, u.updated_at, u.last_login_at, u.last_login_ip`
 
 func scanUser(row rowScanner) (User, error) {
 	var u User
 	var must int
-	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Phone, &u.Kind, &u.Status, &u.BlockedReason, &must,
+	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Kind, &u.Status, &u.BlockedReason, &must,
 		&u.PasswordHash, &u.InstallationID, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt, &u.LastLoginIP)
 	u.MustChangePassword = must == 1
 	u.HasPassword = u.PasswordHash != ""
@@ -449,15 +443,7 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, e
 	return u, s.attachRoles(ctx, []*User{&u})
 }
 
-func (s *Store) GetUserByPhone(ctx context.Context, phone string) (User, error) {
-	u, err := scanUser(s.DB.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users u WHERE u.phone=?`, phone))
-	if err != nil {
-		return u, err
-	}
-	return u, s.attachRoles(ctx, []*User{&u})
-}
-
-// GetUserByInstallation — игрок без телефона, которого узнают по ключу установки игры.
+// GetUserByInstallation — игрок, к аккаунту которого привязана установка игры.
 func (s *Store) GetUserByInstallation(ctx context.Context, installationID string) (User, error) {
 	u, err := scanUser(s.DB.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users u
 		WHERE u.installation_id=? AND u.kind=? ORDER BY u.created_at LIMIT 1`, installationID, KindPlayer))
@@ -505,9 +491,9 @@ type UserFilter struct {
 	Offset int
 }
 
-// ListUsers — поиск строкой: часть логина, имени или телефона; поле:значение для username:, phone:, role:, status:, kind:, id:.
+// ListUsers — поиск строкой: часть логина или имени (и прежних логинов); поле:значение для username:, role:, status:, kind:, id:.
 func (s *Store) ListUsers(ctx context.Context, f UserFilter) ([]User, int, error) {
-	if f.Limit <= 0 || f.Limit > 200 {
+	if f.Limit <= 0 || f.Limit > 2000 {
 		f.Limit = 50
 	}
 	var where []string
@@ -518,9 +504,6 @@ func (s *Store) ListUsers(ctx context.Context, f UserFilter) ([]User, int, error
 		case "username":
 			where = append(where, `u.username LIKE ?`)
 			args = append(args, like)
-		case "phone":
-			where = append(where, `COALESCE(u.phone,'') LIKE ?`)
-			args = append(args, "%"+strings.TrimPrefix(value, "+")+"%")
 		case "role":
 			where = append(where, `EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND (r.slug = ? OR r.name LIKE ?))`)
 			args = append(args, value, like)
@@ -534,9 +517,9 @@ func (s *Store) ListUsers(ctx context.Context, f UserFilter) ([]User, int, error
 			where = append(where, `u.id = ?`)
 			args = append(args, value)
 		default:
-			where = append(where, `(u.username LIKE ? OR u.display_name LIKE ? OR COALESCE(u.phone,'') LIKE ? OR u.id = ?
+			where = append(where, `(u.username LIKE ? OR u.display_name LIKE ? OR u.id = ?
 				OR EXISTS (SELECT 1 FROM username_history h WHERE h.user_id = u.id AND h.old_username LIKE ?))`)
-			args = append(args, like, like, like, value, like)
+			args = append(args, like, like, value, like)
 		}
 	}
 	for _, token := range strings.Fields(f.Query) {
@@ -632,25 +615,40 @@ func (s *Store) ListUsernameHistory(ctx context.Context, userID string) ([]Usern
 	return out, rows.Err()
 }
 
-func (s *Store) UpdateUserProfile(ctx context.Context, userID, displayName string, phone *string) error {
-	q := `UPDATE users SET display_name=?, updated_at=?`
-	args := []any{displayName, now()}
-	if phone != nil {
-		var v any
-		if *phone != "" {
-			v = *phone
-		}
-		q += `, phone=?`
-		args = append(args, v)
-	}
-	res, err := s.DB.ExecContext(ctx, q+` WHERE id=?`, append(args, userID)...)
+func (s *Store) UpdateUserProfile(ctx context.Context, userID, displayName string) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE users SET display_name=?, updated_at=? WHERE id=?`, displayName, now(), userID)
 	if err != nil {
-		if isUnique(err) {
-			return ErrConflict
-		}
 		return err
 	}
 	return affected(res)
+}
+
+// DeleteUser удаляет пользователя; его роли, входы и история логинов уходят каскадом. withData — и установку игры
+// со всеми её ночами (сессии, сообщения, события, запросы к модели). Возвращает, сколько ночей удалено.
+func (s *Store) DeleteUser(ctx context.Context, userID string, withData bool) (int64, error) {
+	user, err := s.GetUser(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	var nights int64
+	if withData && user.InstallationID != "" {
+		if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE installation_id=?`, user.InstallationID).Scan(&nights); err != nil {
+			return 0, err
+		}
+	}
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM users WHERE id=?`, userID)
+	if err != nil {
+		return 0, err
+	}
+	if err := affected(res); err != nil {
+		return 0, err
+	}
+	if withData && user.InstallationID != "" {
+		if _, err := s.DB.ExecContext(ctx, `DELETE FROM installations WHERE id=?`, user.InstallationID); err != nil {
+			return 0, err
+		}
+	}
+	return nights, nil
 }
 
 func (s *Store) SetPassword(ctx context.Context, userID, hash string, mustChange bool) error {

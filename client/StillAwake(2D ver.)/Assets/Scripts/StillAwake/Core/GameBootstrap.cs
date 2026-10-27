@@ -71,15 +71,22 @@ namespace StillAwake
             var picker = session.AddComponent<HotspotPicker>();
             picker.Init(roomView, worldCamera, hud);
 
+            // Ночь, выбранная в меню: её баланс поверх настроек сцены.
+            NightDef nightDef = Nights.Selected;
+            NightSettings nightSettings = Nights.Apply(settings, nightDef);
+            if (nightDef.StartDark) room.LightOn = false;
+
             var night = session.AddComponent<NightController>();
             var stalker = Child<Stalker>("Stalker (logic)", root);
-            stalker.Init(settings, room, () => night.Phase);
+            stalker.Init(nightSettings, room, () => night.Phase);
             var stalkerView = Child<StalkerView>("Stalker", roomView.transform);
             stalkerView.Init(stalker, roomView, room);
+            Child<Atmosphere>("Atmosphere", root).Init(worldCamera, stalker, room);
 
             night.Init(new GameContext
             {
-                Settings = settings,
+                Settings = nightSettings,
+                Night = nightDef,
                 Room = room,
                 Inventory = inventory,
                 Phone = phone,
@@ -98,9 +105,17 @@ namespace StillAwake
                 Backend = BackendClient.Instance,
                 Restart = Restart,
                 ToMenu = hasMenu ? GameFlow.OpenMenu : (Action)null,
+                NextNight = NextNight,
             });
 
             roomView.Show(startView);
+        }
+
+        /// <summary>Следующая ночь: выбрать её и пересобрать сессию.</summary>
+        void NextNight()
+        {
+            Nights.Select(Nights.Selected.Number + 1);
+            Restart();
         }
 
         /// <summary>Перезапуск без перезагрузки сцены — не зависит от Build Settings.</summary>

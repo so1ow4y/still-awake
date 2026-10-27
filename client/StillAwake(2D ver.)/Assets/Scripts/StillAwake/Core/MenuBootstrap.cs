@@ -5,8 +5,8 @@ using UnityEngine.InputSystem.UI;
 namespace StillAwake
 {
     /// <summary>
-    /// Точка входа сцены GameMenu.unity — первой в Build Settings. Собирает меню кодом, как GameBootstrap — ночь.
-    /// «Играть» загружает сцену Game.
+    /// Точка входа сцены GameMenu.unity — первой в Build Settings. Собирает всё кодом, как GameBootstrap — ночь:
+    /// сначала вход в аккаунт (AuthScreen: из файла или формой), потом главное меню. «Играть» загружает сцену Game.
     /// </summary>
     public sealed class MenuBootstrap : MonoBehaviour
     {
@@ -30,7 +30,8 @@ namespace StillAwake
                 events.AddComponent<InputSystemUIInputModule>();
             }
 
-            MainMenu.Create(Ui.CreateCanvas(transform));
+            RectTransform canvas = Ui.CreateCanvas(transform);
+            AuthScreen.Show(canvas, () => MainMenu.Create(canvas));
         }
     }
 }

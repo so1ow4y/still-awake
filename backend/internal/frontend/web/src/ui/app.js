@@ -2,7 +2,7 @@
 // переход закрывают её), верхняя полоса, экраны по адресу, горячие клавиши, подсказки, сообщения.
 // Без входа — экран входа; экран без прав показывает отказ (сервер всё равно проверит права сам).
 
-import { html, useEffect, useState } from './html.js';
+import { html, useEffect, useState, useErrorBoundary } from './html.js';
 import { Icon } from './icons.js';
 import { useStore, useRoute, useMedia } from './hooks.js';
 import { navigate } from './router.js';
@@ -27,11 +27,12 @@ import { UsersScreen } from './screens/Users.js';
 import { RolesScreen } from './screens/Roles.js';
 import { LoginsScreen } from './screens/Logins.js';
 import { SettingsScreen } from './screens/Settings.js';
+import { MyNightsScreen } from './screens/My.js';
 
 const SCREENS = {
   overview: OverviewScreen, model: ModelScreen, prompt: PromptScreen, chat: ChatScreen, analytics: AnalyticsScreen,
   sessions: SessionsScreen, database: DatabaseScreen, users: UsersScreen, roles: RolesScreen, logins: LoginsScreen,
-  settings: SettingsScreen,
+  settings: SettingsScreen, my: MyNightsScreen,
 };
 
 const GO = {
@@ -48,14 +49,37 @@ function allowed(name) {
   return !t || canAny(t.perm);
 }
 
+/**
+ * Ошибка отрисовки внутри раздела не должна ронять всю панель: без этого Preact останавливал перерисовку,
+ * и не работали ни меню, ни закрытие карточки — помогала только перезагрузка страницы.
+ */
+function ScreenGuard({ route, children }) {
+  const [error, reset] = useErrorBoundary((e) => console.error(e));
+  useEffect(() => {
+    if (error) reset();
+  }, [route.path]);
+  if (!error) return children;
+  return html`<div class="screen"><div class="empty"><${Icon} name="warn" size=${32}/><h2>В разделе произошла ошибка</h2>
+    <p class="muted"><code>${error.message || String(error)}</code></p>
+    <p><button type="button" class="btn primary" onClick=${reset}>Попробовать снова</button></p></div></div>`;
+}
+
+/** Переход без записи в истории — после отрисовки (игрока с «Обзора» — в «Мои ночи»). */
+function Redirect({ to }) {
+  useEffect(() => navigate(to, { replace: true }), [to]);
+  return null;
+}
+
 function Screen({ route }) {
+  // Игроку сводка сервера не положена: домашний экран у него — свои ночи.
+  if (route.name === 'overview' && !allowed('overview') && allowed('my')) return html`<${Redirect} to="/my"/>`;
   const S = SCREENS[route.name];
   if (!S) return html`<div class="screen"><div class="empty"><h2>Нет такого раздела</h2><p><a href="#/overview">На обзор</a></p></div></div>`;
   if (!allowed(route.name)) {
     return html`<div class="screen"><div class="empty"><${Icon} name="lock" size=${32}/><h2>Нет доступа</h2>
       <p>Для этого раздела нужна роль с соответствующими правами. Попросите администратора.</p></div></div>`;
   }
-  return html`<${S} key=${route.name} query=${route.query}/>`;
+  return html`<${ScreenGuard} route=${route}><${S} key=${route.name} query=${route.query}/><//>`;
 }
 
 function focusSearch() {

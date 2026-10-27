@@ -1,0 +1,91 @@
+fileFormatVersion: 2
+guid: d9896223a16f21f449a6a0fd32dbef77
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+  script: {fileID: 11500000, guid: a6ae63f99032a51448256fc6d0c53c68, type: 3}
+  LayersInfo:
+  - LayerId: '{65a9511f-d8f3-49d2-ab09-a154cfdbac8a}'
+  - LayerId: '{3644fe3c-1c9d-4bad-8318-559cc30898ca}'
+  - LayerId: '{610dcbd6-af4a-401b-ab6a-20c13da8b763}'
+  - LayerId: '{8c933411-1ce2-4aed-8dc8-5c1bef5407b0}'
+  - LayerId: '{869c298d-06ca-467c-b79a-1c0cd56be9f5}'
+  - LayerId: '{490753d9-1d42-485e-9f03-81303d46469a}'
+  - LayerId: '{e61b8d86-0fc1-49a8-8414-59006c37f53e}'
+  - LayerId: '{393225ea-5ff1-4e25-ad61-6fb2696570f3}'
+  - LayerId: MargedTexture
+  LayersSave:
+  - Id: 47f2b37d-5879-4984-ae7d-097d698c61aa
+    Name: Basic Sword
+    DrawType: 2
+    ExportType: 1
+    subLayerSaves:
+    - LayerId: '{e61b8d86-0fc1-49a8-8414-59006c37f53e}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{490753d9-1d42-485e-9f03-81303d46469a}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{393225ea-5ff1-4e25-ad61-6fb2696570f3}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 2b88e2ec-9404-42ec-a239-1323c0dede14
+    Name: Rare Sword
+    DrawType: 2
+    ExportType: 2
+    subLayerSaves:
+    - LayerId: '{869c298d-06ca-467c-b79a-1c0cd56be9f5}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{e61b8d86-0fc1-49a8-8414-59006c37f53e}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{65a9511f-d8f3-49d2-ab09-a154cfdbac8a}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{393225ea-5ff1-4e25-ad61-6fb2696570f3}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: a0d4a63e-45bd-43cc-9c06-15a3159b28b8
+    Name: Blade
+    DrawType: 2
+    ExportType: 1
+    subLayerSaves:
+    - LayerId: '{490753d9-1d42-485e-9f03-81303d46469a}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 05b2eb64-bbb4-4e38-8ed1-45039db7e8bf
+    Name: RedGem
+    DrawType: 2
+    ExportType: 1
+    subLayerSaves:
+    - LayerId: '{65a9511f-d8f3-49d2-ab09-a154cfdbac8a}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: f7253178-871d-4c14-b4aa-31c0284c596c
+    Name: Grip
+    DrawType: 2
+    ExportType: 1
+    subLayerSaves:
+    - LayerId: '{393225ea-5ff1-4e25-ad61-6fb2696570f3}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 49add65b-c958-4165-89c2-8f76baa46aed
+    Name: Cross-Guard
+    DrawType: 2
+    ExportType: 1
+    subLayerSaves:
+    - LayerId: '{e61b8d86-0fc1-49a8-8414-59006c37f53e}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/Demo/Sword.kra
+  uploadId: 1007082

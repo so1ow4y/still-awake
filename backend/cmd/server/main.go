@@ -2,13 +2,16 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"still-awake-backend/internal/auth"
 	"still-awake-backend/internal/db"
 	"still-awake-backend/internal/httpapi"
 	"still-awake-backend/internal/llm"
@@ -25,10 +28,23 @@ func main() {
 	}
 	defer store.Close()
 
+	ctx := context.Background()
+	if err := store.SeedAccessControl(ctx, auth.Permissions, auth.SystemRoles); err != nil {
+		log.Fatalf("права и роли: %v", err)
+	}
+	admin, err := adminBootstrapFromEnv()
+	if err != nil {
+		log.Fatalf("супер-админ: %v", err)
+	}
+	if err := ensureSuperAdmin(ctx, store, admin); err != nil {
+		log.Fatalf("супер-админ: %v", err)
+	}
+	if os.Getenv("ADMIN_TOKEN") != "" || os.Getenv("ANALYTICS_TOKEN") != "" {
+		log.Printf("ADMIN_TOKEN и ANALYTICS_TOKEN не используются: вход в панель — по логину и паролю, доступ — по ролям. Уберите их из .env.")
+	}
+
 	temp, _ := strconv.ParseFloat(env("LLM_TEMPERATURE", "0.8"), 64)
 	cfg := httpapi.Config{
-		AdminToken:     os.Getenv("ADMIN_TOKEN"),
-		AnalyticsToken: os.Getenv("ANALYTICS_TOKEN"),
 		DefaultProvider: llm.Config{
 			Mode: env("LLM_MODE", "mock"), BaseURL: os.Getenv("LLM_BASE_URL"), Path: env("LLM_PATH", "/v1/chat/completions"),
 			Model: os.Getenv("LLM_MODEL"), APIKey: os.Getenv("LLM_API_KEY"), Temperature: temp,
@@ -37,10 +53,13 @@ func main() {
 		ProviderAllowlist:            splitCSV(os.Getenv("PROVIDER_ALLOWLIST")),
 		AllowUnsafeProviderURLs:      envBool("ALLOW_UNSAFE_PROVIDER_URLS", false),
 		AdminAllowSQLWrites:          envBool("ADMIN_ALLOW_SQL_WRITES", false),
+		SessionTTL:                   time.Duration(envInt("SESSION_TTL_HOURS", 168)) * time.Hour,
+		GameSessionTTL:               time.Duration(envInt("GAME_SESSION_TTL_DAYS", 365)) * 24 * time.Hour,
+		FrontendDir:                  os.Getenv("FRONTEND_DIR"),
 	}
 	api := httpapi.New(store, cfg, slog.Default())
 	log.Printf("Still Awake backend listening on %s", addr)
-	log.Printf("Debug/admin client: %s", displayURL(addr))
+	log.Printf("Панель: %s", displayURL(addr))
 	log.Fatal(http.ListenAndServe(addr, api.Handler()))
 }
 
@@ -85,6 +104,15 @@ func env(k, fallback string) string {
 	}
 	return fallback
 }
+
+func envInt(k string, fallback int) int {
+	v, err := strconv.Atoi(os.Getenv(k))
+	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v
+}
+
 func envBool(k string, fallback bool) bool {
 	v := os.Getenv(k)
 	if v == "" {

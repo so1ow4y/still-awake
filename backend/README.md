@@ -1,201 +1,134 @@
-# Still Awake? — Backend Lab v4
+# Still Awake? — backend
 
-Локальный dev-стенд для Still Awake?: Go backend + SQLite + responsive frontend + LLM provider adapter.
-
-## Что есть в v4
-
-Интерфейс разделён на 4 нижних меню:
-
-1. **AI** — настройки LM Studio/OpenAI-compatible provider, список моделей и live status backend / LLM server / выбранной модели.
-2. **Chat** — `installation_id` / `session_id`, один чат, game state, отправка запросов и два debug-view: client body и фактический `messages[]`, собранный backend с историей из SQLite.
-3. **Analytics** — отдельный read-only `ANALYTICS_TOKEN`: запросы, ошибки, users, sessions, токены, latency, tok/s, TTFT, статистика по дням, моделям и installations.
-4. **Admin** — CRUD, поиск по installation/user ID и session ID, история конкретного пользователя, история session, связанные пары user request → model response, фактический prompt, schema viewer и SQL console.
-
-## Структура
+Go-сервер игры: регистрация игроков по номеру телефона, ночи и их события, переписка со сталкером через LLM
+(LM Studio или любой OpenAI-совместимый сервер), веб-панель с ролями. Хранилище — SQLite в том же процессе.
 
 ```text
-cmd/server/                  запуск приложения
-internal/httpapi/            HTTP API / backend handlers
-internal/llm/                adapter к LLM provider + status check
-internal/db/                 SQLite store + schema + analytics + admin SQL
-internal/frontend/           frontend package
-internal/frontend/web/       HTML / CSS / JS
-examples/                    пример Unity-клиента
-data/still-awake.db          локальная SQLite БД
+cmd/server/                запуск, первый супер-админ (admin.go)
+internal/auth/             пароли (PBKDF2), токены, каталог прав и системных ролей
+internal/db/               SQLite: схема, пользователи и роли, сессии, сообщения, журнал LLM, настройки
+internal/httpapi/          HTTP API: вход, пользователи и роли, игра, чат (chat.go), промпт (prompt.go)
+internal/llm/              адаптер к LLM: чат, список моделей, статус LM Studio
+internal/frontend/web/     панель (Preact + htm без сборки), встраивается в бинарник
 ```
 
-Frontend логически отделён, но для dev встраивается в один Go binary. SQLite работает в том же backend-процессе.
+Устройство и потоки данных — в [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Запуск
 
 ```powershell
 Copy-Item .env.example .env
-# поменяй ADMIN_TOKEN и ANALYTICS_TOKEN
-go mod tidy
 go run ./cmd/server
 ```
 
-Открыть:
+Панель — `http://127.0.0.1:8080/`. Вход — логин и пароль; токенов для админки и аналитики больше нет, доступ решают роли.
+
+### Docker
+
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --build
+docker compose logs backend      # пароль супер-админа при первом запуске
+```
+
+Образ — статический бинарник в Alpine. База лежит в `./data`, первый пароль админа — в `./secrets`: обе папки
+монтируются в контейнер и в git не попадают. LM Studio на хосте контейнер видит как `http://host.docker.internal:1234`
+(это подставляет `docker-compose.yml`; другой адрес — `DOCKER_LLM_BASE_URL`). Порт наружу — `BACKEND_PORT` (8080).
+На Linux один раз: `mkdir -p data secrets && sudo chown 10001:10001 data secrets`.
+
+Если провайдер модели сохранён в панели с адресом `127.0.0.1:1234`, в Docker он не сработает — поменяйте адрес
+в панели («Модель») или сбросьте его на значения из окружения.
+
+## Первый супер-админ
+
+| Переменная | Что делает |
+| --- | --- |
+| `ADMIN_USERNAME` | логин (по умолчанию `admin`) |
+| `ADMIN_INITIAL_PASSWORD` | первый пароль; не задан — берётся из `ADMIN_PASSWORD_FILE`, а если файла нет, генерируется случайный |
+| `ADMIN_PASSWORD_FILE` | куда сохранить сгенерированный пароль, чтобы не терять его между запусками (`./secrets/admin-password.txt`, папка в `.gitignore`) |
+| `DEV_MODE` | `true` — первый пароль печатается в консоль при **каждом** запуске (с пометкой, действует ли он ещё). Без него — только при создании админа |
+| `ADMIN_RESET_PASSWORD` | `true` — вернуть супер-админу первый пароль (или выдать новый), если доступ потерян; потом выключить |
+
+В `DEV_MODE`, если первый пароль нигде не сохранён, а админ его ещё не менял, сервер выдаёт новый, сохраняет в файл
+и печатает. Пароль — не короче 8 символов.
+
+## Роли и пользователи
+
+Модель доступа перенесена из license-store: права (`users.*`, `roles.*`, `llm.*`, `analytics.read`, `sessions.*`,
+`db.*`, `game.play`) собираются в роли с приоритетом.
+
+- Системные роли: `super_admin` (100), `admin` (80), `llm_engineer` (60), `support` (60), `analyst` (50), `player` (10).
+  Их нельзя изменить или удалить.
+- Свои роли — с приоритетом 11–99 и только из прав, которые есть у создателя; приоритет — ниже его собственного.
+- Управлять можно только пользователями, чья старшая роль ниже вашей, и не собой.
+- Сотрудников создаёт администратор: логин и пароль, без почты. Игроки появляются сами — регистрацией из игры.
+- Любой может сменить свой логин; прежние логины сохраняются в истории и находятся поиском.
+- Журнал входов, блокировка с завершением сессий, лимит 10 неудачных попыток за 10 минут.
+
+## Модель и промпт
+
+Провайдер задаётся в `.env` (`LLM_MODE`, `LLM_BASE_URL`, `LLM_MODEL`) или в панели «Модель» (сохраняется в БД
+поверх `.env`, ключ API — только в `.env`). Пустая модель — сервер берёт загруженную в LM Studio LLM, а если
+загруженной нет, первую доступную: LM Studio загрузит её сам.
+
+Системный промпт хранится на сервере: экран «Системный промпт» — редактор с версиями, отличиями и откатом. Каждый
+запрос к модели собирается так:
 
 ```text
-http://127.0.0.1:8080
+system     персона (активная версия из панели) + правила сервера (только в коде, не редактируются)
+history    user: {"от":"она","текст":"..."} / assistant: ответы модели
+user       последняя реплика игрока в том же JSON (нет, если сталкер пишет первым)
+system     СИТУАЦИЯ ночи + ЗАДАЧА хода
 ```
 
-## LM Studio
+Защита от игрока:
 
-В меню **AI**:
+- текст игрока попадает только в поле `"текст"` роли `user`: JSON экранирует кавычки и переносы, служебные
+  токены шаблонов (`<|im_start|>`, `[INST]`, `<<SYS>>`…) вырезаются, длина — до 500 символов;
+- правила сервера велят считать этот текст репликой персонажа, а не командой, и не раскрывать инструкции;
+- ситуацию сервер пишет сам из полей с белыми списками значений (`stalker`, `hidden`, `items`…), а повод
+  «написать первым» игра присылает ключом из списка (`first_contact`, `stalker_at_window`…). Свободный текст
+  от клиента в системные сообщения не попадает — даже из подменённого клиента;
+- игровой чат не принимает подмену провайдера, промпта и истории и возвращает только текст ответа;
+- ответ модели чистится: без `<think>`, подписей, кавычек, не длиннее 280 символов. Не больше 20 сообщений
+  в минуту на игрока.
+
+Отладочный чат панели (право `llm.debug`) идёт тем же путём: можно выбрать событие, подставить черновик промпта
+и посмотреть точный `messages[]`.
+
+## Игровое API
+
+Игра ходит с `Authorization: Bearer <токен>` из регистрации.
 
 ```text
-Provider mode: OpenAI-compatible
-Base URL:     http://127.0.0.1:1234
-Chat path:    /v1/chat/completions
-API token:    sk-lm-...       # только если Require Authentication включён
-Model ID:     получить кнопкой «Получить модели»
+POST /v1/game/register              {installation_id | phone, display_name?, game_version?, platform?} → {token, created, user}
+GET  /v1/game/me                    PATCH /v1/game/me {display_name}      POST /v1/game/logout
+GET  /v1/game/model                 доступна ли модель (для «Проверить модель» в настройках игры)
+POST /v1/game/sessions              {game_version?, scenario?} → {session_id}
+POST /v1/game/sessions/{id}/events  {client_seq, type, payload}
+POST /v1/game/sessions/{id}/chat    {message | event, state, client_seq} → {reply}
 ```
 
-Кнопка **Проверить всё** проверяет:
+Игрок ничего не вводит: игра сама генерирует ключ установки `inst_<32 hex>` и входит по нему — новый ключ — новый
+игрок с ролью `player`, знакомый — тот же. Вход по номеру телефона (без SMS) остался для совместимости. Регистраций
+с одного IP — не больше 30 в минуту.
+`state` — состояние ночи: `clock`, `phase`, `stalker`, `light_on`, `curtains_closed`, `door_locked`, `hidden`,
+`visits`, `phone_sound`, `items`. Незнакомые поля отвергаются.
 
-- `/healthz` backend;
-- доступность LM Studio;
-- наличие выбранной модели;
-- через LM Studio native `/api/v1/models` — загружена ли модель сейчас, effective context length и max context length (если endpoint поддерживается).
+Остальное API панели (пользователи, роли, промпт, сессии, аналитика, SQL) — в [internal/httpapi/server.go](internal/httpapi/server.go).
 
-## Backend history
+## Прочие настройки
 
-Сейчас реализован только `backend_history`.
+`SESSION_TTL_HOURS` и `GAME_SESSION_TTL_DAYS` — сроки входа; `ALLOW_CLIENT_PROVIDER_OVERRIDES` и
+`PROVIDER_ALLOWLIST` — подмена провайдера в отладке; `ADMIN_ALLOW_SQL_WRITES` — запись из SQL-консоли (только
+для разработки); `FRONTEND_DIR` — отдавать панель с диска, чтобы править её без пересборки. Все — в
+[.env.example](.env.example).
 
-Frontend отправляет:
+## Тесты
 
-```json
-{
-  "request_mode": "backend_history",
-  "history_limit": 30,
-  "user_message": "..."
-}
+```powershell
+go test ./...
 ```
 
-Сами прошлые 30 сообщений в этом client body **не дублируются**. Backend получает их из SQLite по `session_id`, после чего формирует:
-
-```text
-system prompt
-+ последние N messages из SQLite
-+ GAME_STATE / EXTRA_CONTEXT
-+ текущее user message
-```
-
-В Chat → **Request / prompt debug** теперь можно увидеть этот итоговый `messages[]` через `POST /v1/sessions/{id}/prompt-preview`. После реального запроса resolved prompt также возвращается в `debug` ответа.
-
-## Linked LLM requests
-
-`llm_requests` теперь хранит не только метрики, но и связь запроса с диалогом:
-
-```text
-installation_id
-session_id
-user_message_id
-assistant_message_id
-user_message
-assistant_message
-request_messages_json   # фактический messages[] для модели
-history_count
-provider / model / endpoint
-prompt/completion/total tokens
-latency / tok/s / TTFT
-status / error
-created_at
-```
-
-Существующая SQLite БД мигрируется при старте: backend добавляет отсутствующие v4-колонки через `ALTER TABLE`.
-
-## Analytics token
-
-В `.env`:
-
-```env
-ANALYTICS_TOKEN=change-this-analytics-token
-```
-
-Analytics endpoint принимает только:
-
-```text
-X-Analytics-Token: ...
-```
-
-Он не даёт SQL/CRUD-доступ. `ADMIN_TOKEN` остаётся отдельным ключом для админки.
-
-Сейчас аналитика показывает:
-
-- requests / success / errors;
-- active installations и sessions;
-- input / output / total tokens;
-- avg latency, tok/s, TTFT;
-- requests/tokens/errors по дням;
-- статистику по моделям;
-- top installations/users с количеством sessions и запросов.
-
-## Admin search / inspectors
-
-Поиск принимает installation/user ID или session ID. Кроме общего списка:
-
-- `History` у installation открывает все sessions и LLM requests этого пользователя;
-- `Inspect` у session показывает messages/events и LLM requests конкретной session;
-- каждый LLM request раскрывается и показывает user message, model response и фактический `messages[]`.
-
-## API
-
-### Game / debug
-
-```text
-GET    /healthz
-POST   /v1/installations
-POST   /v1/sessions
-GET    /v1/sessions/{id}
-POST   /v1/sessions/{id}/events
-GET    /v1/sessions/{id}/messages
-POST   /v1/sessions/{id}/chat
-POST   /v1/sessions/{id}/prompt-preview
-POST   /v1/debug/provider/models
-POST   /v1/debug/provider/status
-```
-
-### Analytics (`X-Analytics-Token`)
-
-```text
-GET /v1/analytics/summary?days=7
-```
-
-`days=0` означает всё время.
-
-### Admin (`X-Admin-Token`)
-
-```text
-GET    /v1/admin/overview
-GET    /v1/admin/installations?q=...
-PATCH  /v1/admin/installations/{id}
-DELETE /v1/admin/installations/{id}
-GET    /v1/admin/sessions?q=...&installation_id=...
-PATCH  /v1/admin/sessions/{id}
-DELETE /v1/admin/sessions/{id}
-GET    /v1/admin/sessions/{id}/messages
-GET    /v1/admin/sessions/{id}/events
-GET    /v1/admin/sessions/{id}/llm-requests
-PATCH  /v1/admin/messages/{id}
-DELETE /v1/admin/messages/{id}
-PATCH  /v1/admin/events/{id}
-DELETE /v1/admin/events/{id}
-GET    /v1/admin/llm-requests?q=...&installation_id=...&session_id=...
-DELETE /v1/admin/llm-requests/{id}
-GET    /v1/admin/db/schema
-POST   /v1/admin/db/query
-```
-
-## Security notes
-
-- AI provider API key не сохраняется frontend-ом и теперь по умолчанию **не показывается в Raw request preview**.
-- `ADMIN_TOKEN`, `ANALYTICS_TOKEN` и provider keys не коммить в Git.
-- SQL console и client provider overrides — dev-only.
-- Для production отключить SQL writes/provider overrides, добавить нормальную user auth, rate limits и HTTPS.
-
-## Проверка сборки
-
-В sandbox нет сетевого доступа для скачивания `modernc.org/sqlite`, поэтому Go-пакеты compile-checked с временным stub-модулем SQLite, а frontend проверен через `node --check`. На обычном ПК `go mod tidy` скачает настоящий драйвер.
+Покрыты роли и иерархия, регистрация и игровой чат (включая попытки подменить промпт), сборка промпта и защита от
+служебных токенов, сохранение первого пароля админа.

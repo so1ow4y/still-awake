@@ -1,0 +1,127 @@
+fileFormatVersion: 2
+guid: dbbbf87bb7fd3cb4c9295de0e9dd217e
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+  script: {fileID: 11500000, guid: a6ae63f99032a51448256fc6d0c53c68, type: 3}
+  LayersInfo:
+  - LayerId: '{bde322e6-adc6-4e4f-887b-3634c0b8b0ed}'
+  - LayerId: '{ff93f0e4-faad-4990-b9ad-2518e9fd9eff}'
+  - LayerId: '{16941254-4ddb-4613-85f0-b60623b3f68f}'
+  - LayerId: '{193e82e7-1660-4de2-815c-1cf8dd9714af}'
+  - LayerId: '{101a99b1-cadf-4391-a750-e1fbadcdae5b}'
+  - LayerId: '{30a9ad49-c2bc-4f72-90a3-74ec82506f67}'
+  - LayerId: '{09addad7-fe47-44ae-9b8a-b8b75af48a8b}'
+  - LayerId: '{1c17cc89-7a13-45f1-908f-fdf1309311b5}'
+  - LayerId: '{686cbf7f-ceb7-49c3-ae55-64ca9f9a5718}'
+  - LayerId: '{880455de-5778-405f-b3a6-a113eb102e02}'
+  - LayerId: '{81ef4f93-8e49-4823-8c8f-7ffaa424ec1e}'
+  - LayerId: '{b47a9fdb-876b-4553-b768-eb132e6df4fc}'
+  - LayerId: '{e3232f05-5012-4ef2-be02-09b610199094}'
+  - LayerId: '{43ddfdf8-1f67-4b70-943b-3b67a1eecfa4}'
+  - LayerId: '{0977ba6e-9959-445b-aafb-86a66053b194}'
+  - LayerId: '{17f095a4-637e-457a-8387-dfdbfeabbb40}'
+  - LayerId: '{ade936c4-2533-4a27-8821-ae3ec5445768}'
+  - LayerId: '{1a6f572e-39c0-42f1-8cdc-7cc76a09783d}'
+  - LayerId: '{9aa604f3-187e-4aa0-802a-f2acb42a777e}'
+  - LayerId: '{7d4c18de-bb7e-4406-9e3f-9a4c161137da}'
+  - LayerId: '{c94b66dc-c335-4234-982c-ad08cdd63d12}'
+  - LayerId: '{bd628cca-e11c-4d0d-80c6-dc9e1426a16c}'
+  - LayerId: '{65e43329-1c75-4848-88eb-b13ddf56b2bb}'
+  - LayerId: '{ec725c1b-10e8-435d-8428-3b2bc6b5b0b1}'
+  - LayerId: '{743dd127-9d8e-4a42-ac71-40ca951e275b}'
+  - LayerId: '{4afbeb5b-d76f-40f9-8244-7c9411f18985}'
+  - LayerId: '{1439c83c-0ded-4707-a703-7befbd51b9fa}'
+  - LayerId: '{041c089e-43ca-4b5d-ba65-fe4ea17f11e4}'
+  - LayerId: MargedTexture
+  LayersSave:
+  - Id: 3938fc1b-7ed6-4ed0-9595-b879a8fe4ea1
+    Name: PigeonWithFace
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{7d4c18de-bb7e-4406-9e3f-9a4c161137da}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{65e43329-1c75-4848-88eb-b13ddf56b2bb}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{1a6f572e-39c0-42f1-8cdc-7cc76a09783d}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{ec725c1b-10e8-435d-8428-3b2bc6b5b0b1}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: c954c1a3-c7bd-4149-901f-961ec916e0d8
+    Name: PigeonWithBow
+    DrawType: 1
+    ExportType: 1
+    subLayerSaves:
+    - LayerId: '{bde322e6-adc6-4e4f-887b-3634c0b8b0ed}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: 3938fc1b-7ed6-4ed0-9595-b879a8fe4ea1
+      SourceType: 1
+      UseAsTransparentMask: 0
+  - Id: 8ea7abc2-b11d-42d0-82c2-b8d8dcdb0723
+    Name: PigeonWithHatMasked
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{193e82e7-1660-4de2-815c-1cf8dd9714af}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{1439c83c-0ded-4707-a703-7befbd51b9fa}'
+      SourceType: 0
+      UseAsTransparentMask: 1
+    - LayerId: 3938fc1b-7ed6-4ed0-9595-b879a8fe4ea1
+      SourceType: 1
+      UseAsTransparentMask: 0
+  - Id: 38f4012b-8f2c-4e7d-b36b-ff54e9c499f7
+    Name: PigeonSpriteSheet
+    DrawType: 2
+    ExportType: 1
+    subLayerSaves:
+    - LayerId: '{bde322e6-adc6-4e4f-887b-3634c0b8b0ed}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: 3938fc1b-7ed6-4ed0-9595-b879a8fe4ea1
+      SourceType: 1
+      UseAsTransparentMask: 0
+    - LayerId: '{193e82e7-1660-4de2-815c-1cf8dd9714af}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{041c089e-43ca-4b5d-ba65-fe4ea17f11e4}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 84f15df6-6f07-4be7-b9f7-c78bf299a8af
+    Name: Massive destructor
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{1c17cc89-7a13-45f1-908f-fdf1309311b5}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{9aa604f3-187e-4aa0-802a-f2acb42a777e}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{7d4c18de-bb7e-4406-9e3f-9a4c161137da}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{65e43329-1c75-4848-88eb-b13ddf56b2bb}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{ec725c1b-10e8-435d-8428-3b2bc6b5b0b1}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/Demo/Pigeon.kra
+  uploadId: 1007082

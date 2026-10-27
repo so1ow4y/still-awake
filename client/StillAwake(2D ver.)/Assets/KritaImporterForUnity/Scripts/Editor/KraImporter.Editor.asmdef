@@ -1,0 +1,19 @@
+{
+    "name": "KraImporter.Editor",
+    "rootNamespace": "KraImporter.Editor",
+    "references": [
+        "GUID:8a651942d7b6c704da9e71f3f7eb628d",
+        "GUID:24e954972fa08564c9d9e1580c758d35"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

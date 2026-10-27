@@ -1,100 +1,69 @@
-# Still Awake? Backend Lab — architecture v4
+# Still Awake? backend — архитектура
 
 ```text
-┌──────────────────────────────────────────┐
-│ Responsive Web Frontend                  │
-│ AI / Chat / Analytics / Admin            │
-└───────────────────┬──────────────────────┘
-                    │ HTTP JSON
-                    ▼
-┌──────────────────────────────────────────┐
-│ Go Backend                               │
-│ game API / analytics API / admin API     │
-│ history resolver / provider proxy        │
-└──────────┬───────────────────┬───────────┘
-           │                   │
-           ▼                   ▼
-┌──────────────────┐   ┌───────────────────┐
-│ SQLite           │   │ LLM adapter       │
-│ installations    │   │ status + inference│
-│ sessions         │   └─────────┬─────────┘
-│ messages         │             │
-│ events           │             ▼
-│ llm_requests     │     ┌─────────────────┐
-└──────────────────┘     │ LM Studio       │
-                         │ Qwen / other LLM│
-                         └─────────────────┘
+┌──────────────────┐   ┌──────────────────────────┐
+│ Unity-клиент     │   │ Панель (Preact + htm)    │
+│ Bearer-токен     │   │ cookie-сессия + роли     │
+└────────┬─────────┘   └────────────┬─────────────┘
+         │ /v1/game/*               │ /v1/auth, /v1/admin, /v1/llm, ...
+         ▼                          ▼
+┌───────────────────────────────────────────────────┐
+│ Go backend (один процесс, в Docker — один образ)  │
+│ auth + RBAC · игровое API · сборка промпта ·      │
+│ журнал запросов к модели · аналитика · SQL        │
+└──────────┬──────────────────────────┬─────────────┘
+           ▼                          ▼
+┌───────────────────┐        ┌─────────────────────┐
+│ SQLite (./data)   │        │ LLM: LM Studio /    │
+│ users, roles,     │        │ OpenAI-совместимый  │
+│ sessions, events, │        └─────────────────────┘
+│ messages, ...     │
+└───────────────────┘
 ```
 
-Backend + SQLite = один deployment. LM Studio = отдельный inference service. Frontend assets раздаются backend-ом, но код лежит отдельно.
-
-## Identity / history
+## Доступ
 
 ```text
-installation_id (условный user)
-    └── session_id (одно прохождение / один чат)
-          ├── messages
-          ├── events
-          └── llm_requests
+user ── user_roles ── role ── role_permissions ── permission
+  │                    └ priority (super_admin 100 … player 10)
+  ├── auth_sessions (web — cookie sa_session, game — Bearer; в БД только SHA-256 токена)
+  ├── username_history
+  └── login_history
 ```
 
-Для `backend_history` backend по `session_id` читает последние N messages из SQLite. Client не обязан пересылать историю сам.
+Каждый маршрут обёрнут в `need(права...)`. Для запросов с cookie обязателен заголовок `X-Requested-With`
+(защита от CSRF). Иерархия: управлять пользователем и назначать роль можно только ниже своего приоритета.
+
+## Ночь
 
 ```text
-Client body
-  history_limit=30
-  user_message
-       │
-       ▼
-Backend
-  SELECT last 30 messages
-       │
-       ├─ system prompt
-       ├─ 30 previous messages
-       ├─ GAME_STATE / EXTRA_CONTEXT
-       └─ current user message
-       │
-       ▼
-/v1/chat/completions
+player (kind=player, роль player)
+  └── installation
+        └── session (одна ночь)
+              ├── events      night_start, stalker, hide, reply, night_end, ...
+              ├── messages    user / assistant
+              └── llm_requests (фактический messages[], токены, задержка, ошибка)
 ```
 
-`prompt-preview` использует тот же resolver, поэтому показывает именно то, что затем уйдёт модели.
-
-## Request audit
-
-Одна строка `llm_requests` связывает вызов модели с парой сообщений:
+## Ход переписки
 
 ```text
-llm_request
-├─ installation_id
-├─ session_id
-├─ user_message_id ──────> messages(user)
-├─ assistant_message_id ─> messages(assistant)
-├─ request_messages_json
-└─ usage/performance/status
+игра: {message | event, state}
+        │
+        ▼
+gameChat ── владелец сессии? лимит 20/мин? ровно одно из message / event?
+        │
+        ▼
+resolveChatRequest
+   system   персона из панели + guardPrompt          ← не меняется между ходами (кеш LM Studio)
+   history  последние 20 сообщений; user — JSON {"от":"она","текст":...}
+   user     реплика игрока (sanitizePlayerText → JSON)
+   system   renderSituation(state) + ЗАДАЧА(event)   ← только белые списки значений
+        │
+        ▼
+llm.Chat (max_tokens 160, таймаут 100 с) → cleanReply → messages + llm_requests → {reply}
 ```
 
-Это позволяет в Admin раскрыть один inference целиком, а также отфильтровать историю по user или session.
-
-## Auth scopes
-
-```text
-Game/debug endpoints       dev/public rules проекта
-Analytics                  X-Analytics-Token
-Admin + SQL                X-Admin-Token
-LM Studio                  Authorization: Bearer <provider token>
-```
-
-Analytics token специально не даёт права на SQL или CRUD.
-
-## Service status
-
-AI tab проверяет:
-
-```text
-Backend /healthz
-LM Studio /api/v1/models (preferred)
-          /v1/models     (fallback)
-```
-
-Native LM Studio v1 позволяет увидеть loaded instance и effective context length. OpenAI-compatible fallback подтверждает только доступность/наличие модели.
+Если модель не ответила вовремя, игра показывает скриптовую реплику: события ночи от сервера не зависят.
+Отладочный чат и `prompt-preview` используют тот же `resolveChatRequest`, поэтому показывают ровно то, что уйдёт
+модели.

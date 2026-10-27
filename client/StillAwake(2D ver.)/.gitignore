@@ -1,0 +1,61 @@
+# Unity-клиент. Всё, что редактор генерирует сам, в git не идёт —
+# Unity восстановит это при первом открытии проекта.
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# .meta коммитим всегда (без них ломаются ссылки между ассетами)
+!/[Aa]ssets/**/*.meta
+
+# Плагин Rider генерируется автоматически
+/[Aa]ssets/Plugins/Editor/JetBrains*
+
+# Проекты и решения IDE — Unity пересоздаёт их сам
+.vs/
+.vscode/
+.idea/
+.gradle/
+.consulo/
+ExportedObj/
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Сборки и артефакты
+sysinfo.txt
+crashlytics-build.properties
+*.apk
+*.aab
+*.app
+*.exe
+*.unitypackage
+
+# Addressables (если подключат)
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# Резервные копии Krita
+*.kra~
+*.kra-autosave.kra

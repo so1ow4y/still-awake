@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: f307feab241cfcb46afad798814ff636
+AssemblyDefinitionImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/LZF/LZF.asmdef
+  uploadId: 1007082

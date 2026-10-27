@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: da4503a66b7506842a905a24c65cfe03
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/LZF/LICENSE
+  uploadId: 1007082

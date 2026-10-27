@@ -1,0 +1,36 @@
+# Локальные настройки. В git — только шаблон .env.example
+.env
+.env.*
+!.env.example
+
+# Секреты между запусками: первый пароль супер-админа (ADMIN_PASSWORD_FILE=./secrets/admin-password.txt)
+/secrets/
+
+# SQLite: локальная БД и служебные файлы (DB_PATH=./data/still-awake.db)
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Сборка Go
+/bin/
+/dist/
+/vendor/
+/server
+/still-awake-backend
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+/tmp/
+
+# Веса моделей в репозиторий не кладём
+*.gguf
+*.safetensors

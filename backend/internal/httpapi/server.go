@@ -2,84 +2,160 @@ package httpapi
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
+	"still-awake-backend/internal/auth"
 	"still-awake-backend/internal/db"
 	"still-awake-backend/internal/frontend"
 	"still-awake-backend/internal/llm"
 )
 
 type Config struct {
-	AdminToken                   string
-	AnalyticsToken               string
 	DefaultProvider              llm.Config
 	AllowClientProviderOverrides bool
 	ProviderAllowlist            []string
 	AllowUnsafeProviderURLs      bool
 	AdminAllowSQLWrites          bool
-	DefaultSystemPrompt          string
+	// Срок сессии панели (продлевается при активности) и игрового токена.
+	SessionTTL     time.Duration
+	GameSessionTTL time.Duration
+	// Папка с файлами панели на диске (для правки интерфейса без пересборки); пусто — встроенные файлы.
+	FrontendDir string
 }
 
 type Server struct {
-	store *db.Store
-	llm   *llm.Client
-	cfg   Config
-	log   *slog.Logger
+	store     *db.Store
+	llm       *llm.Client
+	cfg       Config
+	log       *slog.Logger
+	chatLimit *rateLimiter
+	// registerLimit — регистраций из игры с одного IP в минуту.
+	registerLimit *rateLimiter
 }
 
 func New(store *db.Store, cfg Config, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if cfg.DefaultSystemPrompt == "" {
-		cfg.DefaultSystemPrompt = "You are the stalker character in Still Awake?. Stay concise, unsettling, non-omniscient, and consistent with the supplied game state. Do not invent physical game events; only produce dialogue."
+	if cfg.SessionTTL <= 0 {
+		cfg.SessionTTL = 7 * 24 * time.Hour
 	}
-	return &Server{store: store, llm: llm.New(), cfg: cfg, log: logger}
+	if cfg.GameSessionTTL <= 0 {
+		cfg.GameSessionTTL = 365 * 24 * time.Hour
+	}
+	return &Server{store: store, llm: llm.New(), cfg: cfg, log: logger,
+		chatLimit: newRateLimiter(gameChatPerMinute), registerLimit: newRateLimiter(maxRegistrationsPerWindow)}
+}
+
+// plain — обработчик, которому актор не нужен (права уже проверены обёрткой).
+func plain(h http.HandlerFunc) actorHandler {
+	return func(w http.ResponseWriter, r *http.Request, _ *Actor) { h(w, r) }
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	need := s.need
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, map[string]any{"ok": true}) })
-	mux.HandleFunc("POST /v1/installations", s.createInstallation)
-	mux.HandleFunc("POST /v1/sessions", s.createSession)
-	mux.HandleFunc("GET /v1/sessions/{id}", s.getSession)
-	mux.HandleFunc("POST /v1/sessions/{id}/events", s.addEvent)
-	mux.HandleFunc("GET /v1/sessions/{id}/messages", s.listMessages)
-	mux.HandleFunc("POST /v1/sessions/{id}/chat", s.chat)
-	mux.HandleFunc("POST /v1/sessions/{id}/prompt-preview", s.promptPreview)
-	mux.HandleFunc("GET /v1/admin/overview", s.adminOverview)
-	mux.HandleFunc("GET /v1/admin/installations", s.adminListInstallations)
-	mux.HandleFunc("PATCH /v1/admin/installations/{id}", s.adminUpdateInstallation)
-	mux.HandleFunc("DELETE /v1/admin/installations/{id}", s.adminDeleteInstallation)
-	mux.HandleFunc("GET /v1/admin/sessions", s.adminListSessions)
-	mux.HandleFunc("PATCH /v1/admin/sessions/{id}", s.adminUpdateSession)
-	mux.HandleFunc("DELETE /v1/admin/sessions/{id}", s.adminDeleteSession)
-	mux.HandleFunc("GET /v1/admin/sessions/{id}/messages", s.adminListMessages)
-	mux.HandleFunc("GET /v1/admin/sessions/{id}/events", s.adminListEvents)
-	mux.HandleFunc("PATCH /v1/admin/messages/{id}", s.adminUpdateMessage)
-	mux.HandleFunc("DELETE /v1/admin/messages/{id}", s.adminDeleteMessage)
-	mux.HandleFunc("PATCH /v1/admin/events/{id}", s.adminUpdateEvent)
-	mux.HandleFunc("DELETE /v1/admin/events/{id}", s.adminDeleteEvent)
-	mux.HandleFunc("POST /v1/debug/provider/models", s.debugProviderModels)
-	mux.HandleFunc("POST /v1/debug/provider/status", s.debugProviderStatus)
-	mux.HandleFunc("GET /v1/admin/llm-requests", s.adminListLLMRequests)
-	mux.HandleFunc("GET /v1/admin/sessions/{id}/llm-requests", s.adminListSessionLLMRequests)
-	mux.HandleFunc("DELETE /v1/admin/llm-requests/{id}", s.adminDeleteLLMRequest)
-	mux.HandleFunc("GET /v1/admin/db/schema", s.adminDBSchema)
-	mux.HandleFunc("POST /v1/admin/db/query", s.adminDBQuery)
-	mux.HandleFunc("GET /v1/analytics/summary", s.analyticsSummary)
-	mux.Handle("/", frontend.Handler())
+
+	// Вход в панель и свой профиль.
+	mux.HandleFunc("POST /v1/auth/login", s.login)
+	mux.HandleFunc("POST /v1/auth/logout", s.authed(s.logout))
+	mux.HandleFunc("GET /v1/auth/me", s.authed(s.me))
+	mux.HandleFunc("PATCH /v1/auth/me", s.authed(s.updateMe))
+	mux.HandleFunc("POST /v1/auth/me/username", s.authed(s.changeMyUsername))
+	mux.HandleFunc("POST /v1/auth/me/password", s.authed(s.changeMyPassword))
+	mux.HandleFunc("GET /v1/auth/me/sessions", s.authed(s.mySessions))
+	mux.HandleFunc("DELETE /v1/auth/me/sessions/{id}", s.authed(s.revokeMySession))
+	mux.HandleFunc("POST /v1/auth/me/sessions/revoke-others", s.authed(s.revokeMyOtherSessions))
+	mux.HandleFunc("GET /v1/auth/me/logins", s.authed(s.myLogins))
+	mux.HandleFunc("GET /v1/auth/me/usernames", s.authed(s.myUsernames))
+
+	// Игра: регистрация по телефону и игровые сессии.
+	mux.HandleFunc("POST /v1/game/register", s.gameRegister)
+	mux.HandleFunc("GET /v1/game/me", need(auth.PermGamePlay)(s.gameMe))
+	mux.HandleFunc("GET /v1/game/model", need(auth.PermGamePlay)(s.gameModel))
+	mux.HandleFunc("PATCH /v1/game/me", need(auth.PermGamePlay)(s.gameUpdateMe))
+	mux.HandleFunc("POST /v1/game/logout", need(auth.PermGamePlay)(s.gameLogout))
+	mux.HandleFunc("POST /v1/game/sessions", need(auth.PermGamePlay)(s.gameCreateSession))
+	mux.HandleFunc("POST /v1/game/sessions/{id}/events", need(auth.PermGamePlay)(s.gameAddEvent))
+	mux.HandleFunc("POST /v1/game/sessions/{id}/chat", need(auth.PermGamePlay)(s.gameChat))
+
+	// Пользователи, роли, журнал входов.
+	mux.HandleFunc("GET /v1/admin/users", need(auth.PermUsersRead)(s.listUsers))
+	mux.HandleFunc("POST /v1/admin/users", need(auth.PermUsersCreate)(s.createUser))
+	mux.HandleFunc("GET /v1/admin/users/{id}", need(auth.PermUsersRead)(s.getUserCard))
+	mux.HandleFunc("PATCH /v1/admin/users/{id}", need(auth.PermUsersUpdate)(s.updateUser))
+	mux.HandleFunc("POST /v1/admin/users/{id}/password", need(auth.PermUsersUpdate)(s.setUserPassword))
+	mux.HandleFunc("POST /v1/admin/users/{id}/block", need(auth.PermUsersBlock)(s.blockUser))
+	mux.HandleFunc("POST /v1/admin/users/{id}/unblock", need(auth.PermUsersBlock)(s.unblockUser))
+	mux.HandleFunc("POST /v1/admin/users/{id}/logout", need(auth.PermUsersBlock)(s.logoutUser))
+	mux.HandleFunc("PUT /v1/admin/users/{id}/roles", need(auth.PermRolesAssign)(s.setUserRoles))
+	mux.HandleFunc("GET /v1/admin/roles", need(auth.PermRolesRead, auth.PermRolesAssign, auth.PermRolesManage)(s.listRoles))
+	mux.HandleFunc("GET /v1/admin/permissions", need(auth.PermRolesRead, auth.PermRolesManage)(s.listPermissions))
+	mux.HandleFunc("POST /v1/admin/roles", need(auth.PermRolesManage)(s.createRole))
+	mux.HandleFunc("PATCH /v1/admin/roles/{id}", need(auth.PermRolesManage)(s.updateRole))
+	mux.HandleFunc("DELETE /v1/admin/roles/{id}", need(auth.PermRolesManage)(s.deleteRole))
+	mux.HandleFunc("GET /v1/admin/logins", need(auth.PermLoginsRead)(s.listLogins))
+
+	// Модель: провайдер, системный промпт.
+	llmView := []string{auth.PermLLMSettings, auth.PermLLMDebug, auth.PermLLMPrompt}
+	mux.HandleFunc("GET /v1/llm/provider", need(llmView...)(s.getProvider))
+	mux.HandleFunc("PUT /v1/llm/provider", need(auth.PermLLMSettings)(s.putProvider))
+	mux.HandleFunc("POST /v1/llm/provider/models", need(auth.PermLLMSettings, auth.PermLLMDebug)(s.providerModels))
+	mux.HandleFunc("POST /v1/llm/provider/status", need(llmView...)(s.providerStatus))
+	mux.HandleFunc("GET /v1/llm/prompt", need(llmView...)(s.getPrompt))
+	mux.HandleFunc("POST /v1/llm/prompt", need(auth.PermLLMPrompt)(s.savePrompt))
+	mux.HandleFunc("GET /v1/llm/prompt/versions", need(auth.PermLLMPrompt, auth.PermLLMDebug)(s.listPromptVersions))
+	mux.HandleFunc("POST /v1/llm/prompt/versions/{id}/activate", need(auth.PermLLMPrompt)(s.activatePromptVersion))
+
+	// Лаборатория: отладочный чат от имени тестовой установки.
+	debug := need(auth.PermLLMDebug)
+	mux.HandleFunc("POST /v1/installations", debug(plain(s.createInstallation)))
+	mux.HandleFunc("POST /v1/sessions", debug(plain(s.createSession)))
+	mux.HandleFunc("GET /v1/sessions/{id}", debug(plain(s.getSession)))
+	mux.HandleFunc("POST /v1/sessions/{id}/events", debug(plain(s.addEvent)))
+	mux.HandleFunc("GET /v1/sessions/{id}/messages", debug(plain(s.listMessages)))
+	mux.HandleFunc("POST /v1/sessions/{id}/chat", debug(func(w http.ResponseWriter, r *http.Request, a *Actor) { s.chatWith(w, r, s.overridesAllowed(a)) }))
+	mux.HandleFunc("POST /v1/sessions/{id}/prompt-preview", debug(func(w http.ResponseWriter, r *http.Request, a *Actor) { s.promptPreview(w, r, s.overridesAllowed(a)) }))
+
+	// Игровые данные.
+	read, manage := need(auth.PermSessionsRead), need(auth.PermSessionsManage)
+	mux.HandleFunc("GET /v1/admin/overview", s.authed(s.adminOverview))
+	mux.HandleFunc("GET /v1/admin/installations", read(plain(s.adminListInstallations)))
+	mux.HandleFunc("PATCH /v1/admin/installations/{id}", manage(plain(s.adminUpdateInstallation)))
+	mux.HandleFunc("DELETE /v1/admin/installations/{id}", manage(plain(s.adminDeleteInstallation)))
+	mux.HandleFunc("GET /v1/admin/sessions", read(plain(s.adminListSessions)))
+	mux.HandleFunc("GET /v1/admin/sessions/{id}", read(plain(s.getSession)))
+	mux.HandleFunc("PATCH /v1/admin/sessions/{id}", manage(plain(s.adminUpdateSession)))
+	mux.HandleFunc("DELETE /v1/admin/sessions/{id}", manage(plain(s.adminDeleteSession)))
+	mux.HandleFunc("GET /v1/admin/sessions/{id}/messages", read(plain(s.adminListMessages)))
+	mux.HandleFunc("GET /v1/admin/sessions/{id}/events", read(plain(s.adminListEvents)))
+	mux.HandleFunc("GET /v1/admin/sessions/{id}/llm-requests", read(plain(s.adminListSessionLLMRequests)))
+	mux.HandleFunc("PATCH /v1/admin/messages/{id}", manage(plain(s.adminUpdateMessage)))
+	mux.HandleFunc("DELETE /v1/admin/messages/{id}", manage(plain(s.adminDeleteMessage)))
+	mux.HandleFunc("PATCH /v1/admin/events/{id}", manage(plain(s.adminUpdateEvent)))
+	mux.HandleFunc("DELETE /v1/admin/events/{id}", manage(plain(s.adminDeleteEvent)))
+	mux.HandleFunc("GET /v1/admin/llm-requests", read(plain(s.adminListLLMRequests)))
+	mux.HandleFunc("DELETE /v1/admin/llm-requests/{id}", manage(plain(s.adminDeleteLLMRequest)))
+	mux.HandleFunc("GET /v1/admin/db/schema", need(auth.PermDBRead)(plain(s.adminDBSchema)))
+	mux.HandleFunc("POST /v1/admin/db/query", need(auth.PermDBRead)(s.adminDBQuery))
+	mux.HandleFunc("GET /v1/analytics/summary", need(auth.PermAnalyticsRead)(plain(s.analyticsSummary)))
+
+	mux.Handle("/", frontend.Handler(s.cfg.FrontendDir))
 	return logging(s.log, mux)
+}
+
+// overridesAllowed — можно ли в отладочном запросе подменить провайдер, промпт и историю.
+func (s *Server) overridesAllowed(a *Actor) bool {
+	return s.cfg.AllowClientProviderOverrides && a.Can(auth.PermLLMDebug)
 }
 
 func (s *Server) createInstallation(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +229,7 @@ func (s *Server) addEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, errors.New("type is required"))
 		return
 	}
-	if err := s.store.AddEvent(r.Context(), id, in.ClientSeq, in.Type, in.Payload); err != nil {
+	if err := s.store.AddEvent(r.Context(), id, in.ClientSeq, truncate(in.Type, 64), in.Payload); err != nil {
 		writeError(w, 400, err)
 		return
 	}
@@ -172,264 +248,27 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, msgs)
 }
 
-type chatInput struct {
-	UserMessage  string          `json:"user_message"`
-	GameState    json.RawMessage `json:"game_state"`
-	Context      json.RawMessage `json:"context"`
-	SystemPrompt string          `json:"system_prompt"`
-	ClientSeq    int64           `json:"client_seq"`
-	RawMessages  []llm.Message   `json:"raw_messages"`
-	Provider     *llm.Config     `json:"provider,omitempty"`
-	RequestMode  string          `json:"request_mode,omitempty"`
-	HistoryLimit int             `json:"history_limit,omitempty"`
-}
-
-type resolvedChat struct {
-	Session      db.Session
-	Provider     llm.Config
-	Messages     []llm.Message
-	HistoryCount int
-	HistoryLimit int
-	RequestMode  string
-}
-
-func normalizeChatInput(in *chatInput) error {
-	if in.RequestMode == "" {
-		in.RequestMode = "backend_history"
-	}
-	if in.RequestMode != "backend_history" {
-		return fmt.Errorf("request_mode %q is reserved for a future implementation; use backend_history", in.RequestMode)
-	}
-	if in.HistoryLimit <= 0 {
-		in.HistoryLimit = 30
-	}
-	if in.HistoryLimit > 100 {
-		in.HistoryLimit = 100
-	}
-	return nil
-}
-
-func (s *Server) resolveChatRequest(ctx context.Context, sessionID string, in chatInput) (resolvedChat, error) {
-	var out resolvedChat
-	if err := normalizeChatInput(&in); err != nil {
-		return out, err
-	}
-	session, err := s.store.GetSession(ctx, sessionID)
-	if err != nil {
-		return out, errors.New("session not found")
-	}
-
-	cfg := s.cfg.DefaultProvider
-	if in.Provider != nil {
-		if !s.cfg.AllowClientProviderOverrides {
-			return out, errors.New("client provider overrides are disabled")
-		}
-		cfg = *in.Provider
-		if err := s.validateProvider(cfg); err != nil {
-			return out, err
-		}
-	}
-
-	prompt := s.cfg.DefaultSystemPrompt
-	if in.SystemPrompt != "" && s.cfg.AllowClientProviderOverrides {
-		prompt = in.SystemPrompt
-	}
-
-	messages := []llm.Message{{Role: "system", Content: prompt}}
-	historyCount := 0
-	if len(in.RawMessages) > 0 && s.cfg.AllowClientProviderOverrides {
-		messages = append(messages, in.RawMessages...)
-		historyCount = len(in.RawMessages)
-	} else {
-		history, err := s.store.ListMessages(ctx, sessionID, in.HistoryLimit)
-		if err != nil {
-			return out, err
-		}
-		historyCount = len(history)
-		for _, m := range history {
-			messages = append(messages, llm.Message{Role: m.Role, Content: m.Content})
-		}
-	}
-	if len(in.GameState) > 0 || len(in.Context) > 0 {
-		ctxText := fmt.Sprintf("GAME_STATE=%s\nEXTRA_CONTEXT=%s", compactJSON(in.GameState), compactJSON(in.Context))
-		messages = append(messages, llm.Message{Role: "system", Content: ctxText})
-	}
-	if in.UserMessage != "" {
-		messages = append(messages, llm.Message{Role: "user", Content: in.UserMessage})
-	}
-	out = resolvedChat{
-		Session: session, Provider: cfg, Messages: messages,
-		HistoryCount: historyCount, HistoryLimit: in.HistoryLimit, RequestMode: in.RequestMode,
-	}
-	return out, nil
-}
-
-func publicProviderConfig(cfg llm.Config) map[string]any {
-	return map[string]any{
-		"mode": cfg.Mode, "base_url": cfg.BaseURL, "path": cfg.Path,
-		"model": cfg.Model, "temperature": cfg.Temperature, "api_key_set": cfg.APIKey != "",
-	}
-}
-
-func (s *Server) promptPreview(w http.ResponseWriter, r *http.Request) {
-	var in chatInput
-	if err := decodeJSON(r, &in); err != nil {
-		writeError(w, 400, err)
-		return
-	}
-	resolved, err := s.resolveChatRequest(r.Context(), r.PathValue("id"), in)
-	if err != nil {
-		status := http.StatusBadRequest
-		if err.Error() == "session not found" {
-			status = http.StatusNotFound
-		}
-		writeError(w, status, err)
-		return
-	}
-	writeJSON(w, 200, map[string]any{
-		"request_mode":  resolved.RequestMode,
-		"history_limit": resolved.HistoryLimit,
-		"history_count": resolved.HistoryCount,
-		"messages":      resolved.Messages,
-		"provider":      publicProviderConfig(resolved.Provider),
-	})
-}
-
-func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("id")
-	var in chatInput
-	if err := decodeJSON(r, &in); err != nil {
-		writeError(w, 400, err)
-		return
-	}
-	if in.UserMessage == "" && len(in.RawMessages) == 0 {
-		writeError(w, 400, errors.New("user_message or raw_messages is required"))
-		return
-	}
-	resolved, err := s.resolveChatRequest(r.Context(), sessionID, in)
-	if err != nil {
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "reserved for a future") {
-			status = http.StatusNotImplemented
-		} else if err.Error() == "client provider overrides are disabled" {
-			status = http.StatusForbidden
-		} else if err.Error() == "session not found" {
-			status = http.StatusNotFound
-		}
-		writeError(w, status, err)
-		return
-	}
-
-	if len(in.GameState) > 0 {
-		_ = s.store.UpdateSessionState(r.Context(), sessionID, in.GameState)
-	}
-	var userMessageID int64
-	if in.UserMessage != "" {
-		userMessageID, err = s.store.AddMessageReturningID(r.Context(), db.Message{SessionID: sessionID, Role: "user", Content: in.UserMessage})
-		if err != nil {
-			writeError(w, 500, err)
-			return
-		}
-	}
-	if in.ClientSeq != 0 {
-		_ = s.store.AddEvent(r.Context(), sessionID, in.ClientSeq, "chat", json.RawMessage(`{}`))
-	}
-
-	requestMessagesJSON, _ := json.Marshal(resolved.Messages)
-	result, llmErr := s.llm.Chat(r.Context(), resolved.Provider, resolved.Messages)
-	endpoint := resolved.Provider.BaseURL
-	if resolved.Provider.Path != "" {
-		endpoint = strings.TrimRight(resolved.Provider.BaseURL, "/") + "/" + strings.TrimLeft(resolved.Provider.Path, "/")
-	}
-	logRow := db.LLMRequest{
-		InstallationID: resolved.Session.InstallationID,
-		SessionID:      sessionID, RequestMode: resolved.RequestMode,
-		Provider: result.Provider, Model: result.Model, Endpoint: endpoint,
-		PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens,
-		LatencyMS: result.LatencyMS, TokensPerSecond: result.Performance.TokensPerSecond,
-		TimeToFirstTokenMS: int64(result.Performance.TimeToFirstTokenSeconds * 1000),
-		Status:             "ok", UserMessageID: userMessageID, UserMessage: in.UserMessage,
-		RequestMessages: requestMessagesJSON, HistoryCount: resolved.HistoryCount,
-	}
-	if logRow.Provider == "" {
-		logRow.Provider = resolved.Provider.Mode
-	}
-	if logRow.Model == "" {
-		logRow.Model = resolved.Provider.Model
-	}
-	if llmErr != nil {
-		logRow.Status = "error"
-		logRow.ErrorText = llmErr.Error()
-		_ = s.store.AddLLMRequest(r.Context(), logRow)
-		writeError(w, 502, llmErr)
-		return
-	}
-
-	assistantMessageID, err := s.store.AddMessageReturningID(r.Context(), db.Message{
-		SessionID: sessionID, Role: "assistant", Content: result.Text, Provider: result.Provider, Model: result.Model,
-	})
-	if err != nil {
-		logRow.Status = "error"
-		logRow.ErrorText = "model replied but assistant message could not be stored: " + err.Error()
-		logRow.AssistantMessage = result.Text
-		_ = s.store.AddLLMRequest(r.Context(), logRow)
-		writeError(w, 500, err)
-		return
-	}
-	logRow.AssistantMessageID = assistantMessageID
-	logRow.AssistantMessage = result.Text
-	_ = s.store.AddLLMRequest(r.Context(), logRow)
-
-	writeJSON(w, 200, map[string]any{
-		"reply": result.Text, "provider": result.Provider, "model": result.Model,
-		"request_mode": resolved.RequestMode, "usage": result.Usage,
-		"performance": result.Performance, "latency_ms": result.LatencyMS,
-		"debug": map[string]any{
-			"history_limit":     resolved.HistoryLimit,
-			"history_count":     resolved.HistoryCount,
-			"resolved_messages": resolved.Messages,
-			"provider":          publicProviderConfig(resolved.Provider),
-		},
-	})
-}
-
-func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
-	if !s.adminOK(r) {
-		writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
-		return false
-	}
-	return true
-}
-
-func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
+func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request, a *Actor) {
 	v, err := s.store.Overview(r.Context())
 	if err != nil {
 		writeError(w, 500, err)
 		return
 	}
+	_, staff, _ := s.store.ListUsers(r.Context(), db.UserFilter{Kind: db.KindStaff, Limit: 1})
+	_, players, _ := s.store.ListUsers(r.Context(), db.UserFilter{Kind: db.KindPlayer, Limit: 1})
 	writeJSON(w, 200, map[string]any{
 		"counts": v,
+		"users":  map[string]int{"staff": staff, "players": players},
 		"config": map[string]any{
-			"client_provider_overrides":  s.cfg.AllowClientProviderOverrides,
-			"unsafe_provider_urls":       s.cfg.AllowUnsafeProviderURLs,
-			"provider_allowlist":         s.cfg.ProviderAllowlist,
-			"default_provider_mode":      s.cfg.DefaultProvider.Mode,
-			"default_provider_base_url":  s.cfg.DefaultProvider.BaseURL,
-			"default_provider_model":     s.cfg.DefaultProvider.Model,
-			"server_has_default_api_key": s.cfg.DefaultProvider.APIKey != "",
-			"admin_sql_writes":           s.cfg.AdminAllowSQLWrites,
-			"analytics_token_configured": s.cfg.AnalyticsToken != "",
+			"client_provider_overrides": s.cfg.AllowClientProviderOverrides,
+			"unsafe_provider_urls":      s.cfg.AllowUnsafeProviderURLs,
+			"provider_allowlist":        s.cfg.ProviderAllowlist,
+			"admin_sql_writes":          s.cfg.AdminAllowSQLWrites,
 		},
 	})
 }
 
 func (s *Server) adminListInstallations(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	rows, err := s.store.SearchInstallations(r.Context(), r.URL.Query().Get("q"), limit)
 	if err != nil {
@@ -440,9 +279,6 @@ func (s *Server) adminListInstallations(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) adminUpdateInstallation(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	var in struct {
 		Metadata json.RawMessage `json:"metadata"`
 	}
@@ -462,9 +298,6 @@ func (s *Server) adminUpdateInstallation(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) adminDeleteInstallation(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	if err := s.store.DeleteInstallation(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, 404, errors.New("installation not found"))
@@ -477,9 +310,6 @@ func (s *Server) adminDeleteInstallation(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) adminUpdateSession(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	var in struct {
 		GameVersion string          `json:"game_version"`
 		Scenario    string          `json:"scenario"`
@@ -501,9 +331,6 @@ func (s *Server) adminUpdateSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminListMessages(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	rows, err := s.store.ListMessages(r.Context(), r.PathValue("id"), limit)
 	if err != nil {
@@ -514,9 +341,6 @@ func (s *Server) adminListMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminListEvents(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	rows, err := s.store.ListEvents(r.Context(), r.PathValue("id"), limit)
 	if err != nil {
@@ -531,9 +355,6 @@ func pathInt64(r *http.Request) (int64, error) {
 }
 
 func (s *Server) adminUpdateMessage(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	id, err := pathInt64(r)
 	if err != nil {
 		writeError(w, 400, errors.New("invalid message id"))
@@ -556,9 +377,6 @@ func (s *Server) adminUpdateMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminDeleteMessage(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	id, err := pathInt64(r)
 	if err != nil {
 		writeError(w, 400, errors.New("invalid message id"))
@@ -576,9 +394,6 @@ func (s *Server) adminDeleteMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminUpdateEvent(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	id, err := pathInt64(r)
 	if err != nil {
 		writeError(w, 400, errors.New("invalid event id"))
@@ -605,9 +420,6 @@ func (s *Server) adminUpdateEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminDeleteEvent(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	id, err := pathInt64(r)
 	if err != nil {
 		writeError(w, 400, errors.New("invalid event id"))
@@ -625,10 +437,6 @@ func (s *Server) adminDeleteEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
-	if !s.adminOK(r) {
-		writeError(w, 401, errors.New("unauthorized"))
-		return
-	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	rows, err := s.store.SearchSessions(r.Context(), r.URL.Query().Get("q"), r.URL.Query().Get("installation_id"), limit)
 	if err != nil {
@@ -639,19 +447,11 @@ func (s *Server) adminListSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminDeleteSession(w http.ResponseWriter, r *http.Request) {
-	if !s.adminOK(r) {
-		writeError(w, 401, errors.New("unauthorized"))
-		return
-	}
 	if err := s.store.DeleteSession(r.Context(), r.PathValue("id")); err != nil {
 		writeError(w, 404, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) adminOK(r *http.Request) bool {
-	return s.cfg.AdminToken != "" && r.Header.Get("X-Admin-Token") == s.cfg.AdminToken
 }
 
 func (s *Server) validateProvider(cfg llm.Config) error {
@@ -676,11 +476,7 @@ func (s *Server) validateProvider(cfg llm.Config) error {
 	return errors.New("provider base_url is not in PROVIDER_ALLOWLIST")
 }
 
-func newID(prefix string) string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return prefix + "_" + hex.EncodeToString(b)
-}
+func newID(prefix string) string { return auth.NewID(prefix) }
 
 func compactJSON(v json.RawMessage) string {
 	if len(v) == 0 {

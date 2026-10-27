@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: cf61690f3880cb241aeedd9d8428080b
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/Scripts/Editor/KritaImporterEditor.cs
+  uploadId: 1007082

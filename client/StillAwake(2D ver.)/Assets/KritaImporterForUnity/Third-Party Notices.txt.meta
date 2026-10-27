@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: a619aa8f1bcdfa445a85faa1d49fdbcc
+TextScriptImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/Third-Party Notices.txt
+  uploadId: 1007082

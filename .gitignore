@@ -1,16 +1,20 @@
-.env
-*.db
-*.sqlite
-*.gguf
-*.safetensors
+# Общее для всего репозитория. Правила частей: backend/.gitignore и client/.gitignore
 
-Library/
-Temp/
-Obj/
-Build/
-Logs/
+# Системный мусор
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
-*.exe
-.vs/
+# Настройки редакторов
 .idea/
 .vscode/
+.vs/
+*.swp
+
+# Секреты не коммитим нигде (шаблоны вида .env.example — можно)
+.env
+.env.*
+!.env.example
+secrets/

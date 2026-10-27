@@ -1,0 +1,197 @@
+fileFormatVersion: 2
+guid: d7b429e81cdf81744aeb260bb2b9ded9
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+  script: {fileID: 11500000, guid: a6ae63f99032a51448256fc6d0c53c68, type: 3}
+  LayersInfo:
+  - LayerId: '{fa87f398-cdb3-47c1-bd5b-031c8c99254e}'
+  - LayerId: '{396fe0d0-2834-47ca-9bbf-c19754888fcc}'
+  - LayerId: '{d93247b9-8437-4146-abb9-97a453dc3d24}'
+  - LayerId: '{24f99ee2-4a06-484d-b3be-b1b87f704620}'
+  - LayerId: '{1ce557b0-1324-436d-96b9-575f9fe40f79}'
+  - LayerId: '{1ca0d17e-24dc-46c0-bcd8-64ea4b15d2ae}'
+  - LayerId: '{3616ad37-e0d3-4b33-8efe-2df567beefcb}'
+  - LayerId: '{d326928e-ac96-48a2-ae07-e45390344d5f}'
+  - LayerId: '{95716053-0f2e-46e1-aed3-cb4905550065}'
+  - LayerId: '{d9e12aad-447a-4305-8262-d64e9d96e702}'
+  - LayerId: '{3c4dfc60-8563-465c-8e87-3e4db4bc24b0}'
+  - LayerId: '{de9b46e9-6e38-40c2-8aef-68075af00c94}'
+  - LayerId: '{8fe8c36c-6405-401c-91d4-a511fd85a516}'
+  - LayerId: '{242d32d2-15bd-482a-a84b-c8f27b024edc}'
+  - LayerId: '{edfa7766-5744-4e49-b466-f7329fdf1bfc}'
+  - LayerId: '{10216a68-b213-4f8b-80ee-80f183ae1f53}'
+  - LayerId: '{63e9b22d-a516-4dec-b641-cbb57ac81bb4}'
+  - LayerId: '{69a6eb30-d741-41b7-a360-2653952f5f5c}'
+  - LayerId: '{423a794a-3daa-457a-9a93-f3bbcefefe26}'
+  - LayerId: '{e68083b2-08c1-4cff-ab77-26cdce1b3c8a}'
+  - LayerId: '{e41dee59-2236-4bbf-afaa-c634bb90efc0}'
+  - LayerId: '{5d1b9b2c-88bc-4dad-bf6c-01d1dfae2b3e}'
+  - LayerId: '{301987b9-bd2d-4048-9169-adcbcc1def7a}'
+  - LayerId: MargedTexture
+  LayersSave:
+  - Id: 0e80f723-a92d-4c78-8ba5-04557d1508a4
+    Name: "\u0428\u043A\u0430\u0444"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{fa87f398-cdb3-47c1-bd5b-031c8c99254e}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: ba90c356-db73-43f5-829b-25edc73265a4
+    Name: "\u041A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{396fe0d0-2834-47ca-9bbf-c19754888fcc}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{d93247b9-8437-4146-abb9-97a453dc3d24}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{24f99ee2-4a06-484d-b3be-b1b87f704620}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: fdabde0d-5660-4468-bee8-ddb1707cbaff
+    Name: "\u041A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u043D\u044B\u0439 \u0441\u0442\u043E\u043B"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{1ce557b0-1324-436d-96b9-575f9fe40f79}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: b41346ec-3590-4d5e-9e59-ed17d1934c6a
+    Name: "\u0421\u0442\u043E\u043B \u0443 \u043E\u043A\u043D\u0430"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{1ca0d17e-24dc-46c0-bcd8-64ea4b15d2ae}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 70f78b8e-8808-4229-b92c-cfa0225190a4
+    Name: "\u0422\u043E\u0440\u0448\u0435\u0440"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{3616ad37-e0d3-4b33-8efe-2df567beefcb}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+    - LayerId: '{e68083b2-08c1-4cff-ab77-26cdce1b3c8a}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 760600ac-ac07-4e9a-ae08-ad22a3dad15c
+    Name: "\u041A\u0430\u0440\u0442\u0438\u043D\u0430"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{d326928e-ac96-48a2-ae07-e45390344d5f}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 9920dfe6-6544-492b-86dc-44072d04298f
+    Name: "\u0414\u0432\u0435\u0440\u044C"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{95716053-0f2e-46e1-aed3-cb4905550065}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: ccb37351-1cda-4b00-86f4-80e3ffd111f5
+    Name: "\u0427\u0435\u043B\u043E\u0432\u0435\u043A"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{d9e12aad-447a-4305-8262-d64e9d96e702}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: bf25e584-eefa-4e46-a895-934e8002390d
+    Name: "\u041A\u0440\u043E\u0432\u0430\u0442\u044C"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{3c4dfc60-8563-465c-8e87-3e4db4bc24b0}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 2260ba8e-a723-4b9c-8fce-55e6e139ab6e
+    Name: "\u041A\u043D\u0438\u0433\u0430"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{de9b46e9-6e38-40c2-8aef-68075af00c94}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 86d0574a-c99b-4418-88fc-29aff111087b
+    Name: "\u0412\u0430\u0437\u0430"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{8fe8c36c-6405-401c-91d4-a511fd85a516}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: e2fb3658-daf9-42a1-bcfc-03612fb11443
+    Name: "\u0422\u0443\u043C\u0431\u0430"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{242d32d2-15bd-482a-a84b-c8f27b024edc}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: d28d895b-2bd9-4abf-b838-7837f194a17e
+    Name: "\u0417\u0435\u0440\u043A\u0430\u043B\u043E"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{edfa7766-5744-4e49-b466-f7329fdf1bfc}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 84f61dff-f359-4815-962c-a93eb6e29bfd
+    Name: "\u041B\u044E\u0441\u0442\u0440\u0430"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{10216a68-b213-4f8b-80ee-80f183ae1f53}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 59504f18-1a54-491b-9ad9-859934378be1
+    Name: "\u0425\u043E\u043B\u043E\u0434\u0438\u043B\u044C\u043D\u0438\u043A"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{63e9b22d-a516-4dec-b641-cbb57ac81bb4}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 59c8acc5-007d-4bfb-9fc1-5165ac57ac3c
+    Name: "\u041A\u0440\u0435\u0441\u043B\u043E"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{69a6eb30-d741-41b7-a360-2653952f5f5c}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: a6544f98-c988-4a62-91a1-47e6d2f4aa83
+    Name: "\u041A\u043E\u0432\u0435\u0440"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{423a794a-3daa-457a-9a93-f3bbcefefe26}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: a1c0f954-08e9-4d34-b560-958f1a903de4
+    Name: "\u041E\u043A\u043D\u043E"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{e41dee59-2236-4bbf-afaa-c634bb90efc0}'
+      SourceType: 0
+      UseAsTransparentMask: 0
+  - Id: 810405ab-6cd0-4675-a082-2db11babea5f
+    Name: "\u041A\u043E\u043C\u043D\u0430\u0442\u0430"
+    DrawType: 1
+    ExportType: 0
+    subLayerSaves:
+    - LayerId: '{5d1b9b2c-88bc-4dad-bf6c-01d1dfae2b3e}'
+      SourceType: 0
+      UseAsTransparentMask: 0

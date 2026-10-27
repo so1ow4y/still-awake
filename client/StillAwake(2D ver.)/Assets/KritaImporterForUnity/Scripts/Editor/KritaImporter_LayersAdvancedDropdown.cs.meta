@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: 2a57c3a3fe2766a429dc5f56a9bb5c68
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/Scripts/Editor/KritaImporter_LayersAdvancedDropdown.cs
+  uploadId: 1007082

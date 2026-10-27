@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: 5ee6a12c6e19b5f498aef09d994b363c
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/LZF/CLZF2.cs
+  uploadId: 1007082

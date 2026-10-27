@@ -341,6 +341,12 @@ func (s *Store) SearchInstallations(ctx context.Context, query string, limit int
 	return out, rows.Err()
 }
 
+func (s *Store) InstallationExists(ctx context.Context, id string) (bool, error) {
+	var n int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM installations WHERE id=?`, id).Scan(&n)
+	return n > 0, err
+}
+
 func (s *Store) UpdateInstallation(ctx context.Context, id string, metadata json.RawMessage) error {
 	if len(metadata) == 0 {
 		metadata = json.RawMessage(`{}`)

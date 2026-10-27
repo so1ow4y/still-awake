@@ -1,0 +1,20 @@
+# В образ — только исходники. Секреты, база и сборки остаются на хосте.
+.env
+.env.*
+!.env.example
+data/
+secrets/
+*.db
+*.db-*
+*.exe
+*.test
+bin/
+dist/
+tmp/
+examples/
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+.git
+.gitignore

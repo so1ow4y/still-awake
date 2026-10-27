@@ -1,0 +1,10 @@
+{
+  "name": "com.mooseandmagic.kra-importer",
+  "version": "0.1.0",
+  "displayName": "Krita Importer for Unity",
+  "description": "Unity editor tool for importing Krita .kra files directly into Unity.",
+  "unity": "2022.3",
+  "author": {
+    "name": "Moose And Magic"
+  }
+}

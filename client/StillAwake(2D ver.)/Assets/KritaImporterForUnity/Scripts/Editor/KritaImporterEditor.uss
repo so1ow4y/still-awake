@@ -1,0 +1,476 @@
+/* Root */
+
+.kra-root {
+    --borderColorLight: rgb(80, 81, 87);
+    --borderColorDark: rgb(13, 12, 26);
+
+    --light1: rgb(59, 60, 65);
+    --dark1: rgb(43, 44, 46);
+    --dark2: rgb(38, 38, 38);
+    --dark3: rgb(32, 32, 32);
+    --dark4: rgb(24, 24, 24);
+    --dark5: rgb(22, 22, 22);
+
+    padding: 2px;
+}
+
+.layer-Foldout {
+    margin-top: 6px;
+    margin-bottom: 8px;
+
+    -unity-font-style: bold;
+}
+
+.layer-Foldout > .unity-foldout__toggle {
+    min-height: 32px;
+    padding-left: 8px;
+    background-color: var(--dark1);
+
+    border-width: 1px;
+    border-color: rgb(64, 64, 64);
+    border-radius: 5px;
+
+    color: rgb(225, 225, 225);
+}
+
+.layer-Foldout > .unity-foldout__toggle:hover {
+    background-color: rgb(46, 46, 46);
+    border-color: rgb(82, 82, 82);
+}
+
+.layer-Foldout > .unity-foldout__toggle:active {
+    background-color: rgb(35, 35, 35);
+    border-color: rgb(100, 100, 100);
+}
+
+/* Buttons */
+
+.add-layer,
+.add-subLayer {
+    width: 160px;
+    height: 18px;
+    -unity-font-style: bold;
+    align-self: center;
+    background-color: #13771b;
+
+    border-width: 1px;
+    border-color: #499c18;
+    border-radius: 4px;
+}
+
+.add-layer:hover,
+.add-subLayer:hover {
+    background-color: rgb(35, 145, 58);
+    border-color: rgb(88, 205, 100);
+}
+
+.add-subLayer 
+{
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.add-layer
+{
+    width: 30%;   
+    height: 25px;
+    margin-left: 0px;
+    margin-right: 0px;
+    align-self: center; 
+}
+
+.remove-layer,
+.remove-subLayer {
+    width: 26px;
+    height: 18px;
+    -unity-font-style: bold;
+    background-color: #c42c2c;
+
+    border-width: 1px;
+    border-color: #eb5a8a;
+    border-radius: 4px;
+}
+
+.remove-layer {
+    align-self: center;
+    flex-grow: 0;
+    width: 30px;
+    height: 75%;
+    padding-left: 6px;
+    background-color: #8b1010;
+    border-color: #ce5692;
+}
+
+.remove-layer:hover,
+.remove-subLayer:hover {
+    background-color: rgb(170, 45, 45);
+    border-color: rgb(235, 100, 115);
+}
+
+
+
+.remove-subLayer {
+    margin-left: 4px;
+    height: 22px;
+}
+
+.transparencyToggle {
+    width: 26px;
+    height: 22px;
+    margin-left: 4px;
+    margin-right: 4px;
+
+    padding: 0;
+
+    justify-content: center;
+    align-items: center;
+
+    background-color: rgb(55, 55, 55);
+    border-width: 1px;
+    border-color: rgb(85, 85, 85);
+    border-radius: 4px;
+}
+
+.transparencyToggle:hover {
+    background-color: rgb(70, 70, 70);
+    border-color: rgb(110, 110, 110);
+}
+
+/* hide standard checkbox */
+.transparencyToggle .unity-toggle__input {
+    display: none;
+}
+
+/* tekst T */
+.transparencyToggle .unity-toggle__label {
+    margin: 0;
+    padding: 0;
+
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+
+    color: rgb(210, 210, 210);
+}
+
+/* hover */
+.transparencyToggle:hover {
+    background-color: rgb(70, 70, 70);
+    border-color: rgb(110, 110, 110);
+}
+
+/* when toggle is checked */
+.transparencyToggle:checked {
+    background-color: rgb(210, 120, 35);
+    border-color: rgb(240, 150, 55);
+}
+
+.transparencyToggle:checked .unity-toggle__label {
+    color: white;
+}
+
+/* Main record layer */
+.layer-wrapper
+{
+    flex-direction: column;
+    width: 100%;
+    margin-bottom: 4px;
+
+    background-color: var(--dark3);
+    border-radius: 5px;
+}
+
+.layer-wrapper-top{
+    min-height: 25px;
+    width: 100%;
+    margin-bottom: 6px;
+    flex-direction: row;
+}
+
+.layer-wrapper-middle {
+    flex-direction: row;
+    align-items: flex-start;
+    width: 100%;
+}
+.layer-wrapper-bot {
+    flex-direction: row;
+    width: 100%;
+    min-height: 25px;
+}
+
+.layer-label{
+    -unity-font-style: bold;
+    font-size: 30px;
+    align-self: center;
+}
+
+
+/* Other inputs */
+
+/* Layer Name Field */
+
+.layer-foldout-name-field {
+    flex-grow: 1;
+
+    min-height: 22px;
+}
+
+.layer-foldout-name-field > .unity-text-field__input {
+
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    -unity-font-style: bold;
+    color: rgb(230, 230, 230);
+}
+
+.layer-foldout-name-field > .unity-text-field__input:hover {
+    background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Export Foldout */
+
+.export-foldout {
+    width: 100%;
+
+    align-self: center;
+
+    margin-top: 6px;
+
+    -unity-font-style: bold;
+}
+
+.export-foldout > .unity-foldout__toggle {
+    min-height: 26px;
+
+    margin-left: 0;
+
+    padding-left: 6px;
+
+    background-color: rgb(37, 37, 40);
+
+    border-width: 1px;
+    border-color: rgb(55, 55, 60);
+    border-radius: 4px;
+}
+
+.export-foldout > .unity-foldout__toggle:hover {
+    background-color: rgb(44, 44, 48);
+    border-color: rgb(75, 75, 82);
+}
+
+.export-foldout ToggleButtonGroup {
+    width: 100%;
+
+    margin-top: 4px;
+}
+
+.export-foldout Button {
+    flex-grow: 1;
+
+    min-height: 24px;
+
+    -unity-font-style: bold;
+
+    background-color: var(--light1);
+
+    border-color: var(--borderColorDark);
+    border-width: 1px;
+
+    color: rgb(215, 215, 215);
+}
+
+.export-foldout Button:hover {
+    background-color: rgb(70, 70, 76);
+    border-color: rgb(92, 92, 100);
+}
+
+.export-foldout ToggleButtonGroup > Button:checked {
+    background-color: rgb(210, 120, 35);
+    border-color: rgb(240, 150, 55);
+
+    color: white;
+}
+
+/* Preview merged layera */
+
+.preview-container {
+    width: 96px;
+    height: 96px;
+    margin-right: 8px;
+
+    align-self: center;
+
+    background-color: var(--dark4);
+    border-width: 1px;
+    border-color: var(--borderColorLight);
+    border-radius: 4px;
+}
+
+.layer-preview {
+    width: 100%;
+    height: 100%;
+}
+
+.moveBtn {
+    width: 24px;
+    height: 22px;
+
+    background-color: rgb(50, 55, 62);
+    border-color: rgb(78, 88, 104);
+    border-width: 1px;
+    border-radius: 4px;
+
+    color: rgb(210, 220, 235);
+}
+
+.moveBtn:hover {
+    background-color: rgb(62, 70, 82);
+    border-color: rgb(105, 120, 145);
+    color: white;
+}
+
+.moveBtn:active {
+    background-color: rgb(38, 44, 52);
+    border-color: rgb(130, 150, 180);
+}
+
+/* Sublayers */
+
+.sublayers-container {
+    flex-grow: 1;
+    flex-direction: column;
+    min-width: 0;
+
+    border-width: 2px;
+    border-color: var(--borderColorDark);
+    border-radius: 4px;
+}
+
+
+/* Single sublayer */
+
+.subLayer-record {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+
+    padding: 4px;
+
+    background-color: var(--dark2);
+}
+
+.LayerDropdown {
+    flex-grow: 1;
+    min-height: 28px;
+
+    background-color: rgb(48, 48, 48);
+    border-width: 1px;
+    border-color: rgb(76, 76, 76);
+    border-radius: 4px;
+
+    color: rgb(220, 220, 220);
+
+    -unity-text-align: middle-left;
+}
+
+.LayerDropdown:hover {
+    background-color: rgb(58, 58, 58);
+    border-color: rgb(100, 100, 100);
+}
+
+.LayerDropdown:active {
+    background-color: rgb(38, 38, 38);
+    border-color: rgb(120, 120, 120);
+}
+
+.layer-foldout-name-field {
+    flex-grow: 1;
+    margin-left: 4px;
+    margin-right: 6px;
+}
+.layer-foldout-name-field > .unity-text-field__input {
+    margin-bottom: 4px;
+}
+
+.layer-foldout-name-field > .unity-text-field__input > .unity-text-element {
+    margin: 2px;
+}
+
+.layer-wrapper > .unity-foldout > .unity-base-field > .unity-foldout__input
+{
+    margin-right: 0px;
+    margin-left: 10px;
+    margin-bottom: 3px;
+    flex-grow: 0;
+}
+
+.layer-wrapper > .unity-foldout > .unity-base-field{
+    margin-left: 0;
+    border-radius: 2px;
+    margin: 0;
+    height: 35px;
+}
+
+.layer-textField
+{
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.layer-textField > .unity-text-field__input
+{
+    padding-top: 0;
+    margin: 0;
+}
+
+.layer-textField > .unity-text-field__input > .unity-text-element
+{
+    padding-top: 0;
+}
+
+.layer-name .unity-text-input {
+    border-width: 0;
+    background-color: rgba(0, 0, 0, 0);
+    -unity-font-style: bold;
+}
+
+/* Preview single sublayer */
+
+.preview-sublayer-container,
+.preview-sublayer {
+    width: 40px;
+    height: 40px;
+
+    background-color: var(--dark5);
+    border-width: 1px;
+    border-color: var(--borderColorLight);
+    border-radius: 3px;
+}
+
+.reimportKra-btn
+{
+    width: 80%;
+    height: 30px;
+    margin-top: 10px;
+
+    align-self: center;
+
+    -unity-font-style: bold;
+
+    background-color: rgb(58, 67, 130);
+    border-color: rgb(105, 125, 220);
+    border-width: 1px;
+    border-radius: 4px;
+}
+
+.reimportKra-btn:hover {
+    background-color: rgb(72, 84, 160);
+    border-color: rgb(135, 155, 245);
+}
+
+/* Toggle */
+
+Toggle {
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+

@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: e68f861a955c5fb48a8ee8926d8495c3
+AssetOrigin:
+  serializedVersion: 1
+  productId: 389534
+  packageName: Krita File Importer (.kra)
+  packageVersion: 1.3.6
+  assetPath: Assets/KritaImporterForUnity/Scripts/Editor/Optional/KraImageDataViewerWindow.cs
+  uploadId: 1007082

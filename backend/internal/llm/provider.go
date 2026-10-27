@@ -25,6 +25,8 @@ type Config struct {
 	Model       string  `json:"model,omitempty"`
 	APIKey      string  `json:"api_key,omitempty"`
 	Temperature float64 `json:"temperature,omitempty"`
+	// MaxTokens — потолок длины ответа; 0 — как решит провайдер.
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 type Usage struct {
@@ -138,8 +140,15 @@ func (c *Client) ListModels(ctx context.Context, cfg Config) ([]ModelInfo, error
 }
 
 func (c *Client) chatOpenAICompatible(ctx context.Context, cfg Config, messages []Message) (Result, error) {
-	if cfg.BaseURL == "" || cfg.Model == "" {
-		return Result{}, errors.New("base_url and model are required")
+	if cfg.BaseURL == "" {
+		return Result{}, errors.New("base_url is required")
+	}
+	if cfg.Model == "" {
+		model, err := c.pickModel(ctx, cfg)
+		if err != nil {
+			return Result{Provider: "openai_compatible"}, fmt.Errorf("модель не задана и не выбрана автоматически: %w", err)
+		}
+		cfg.Model = model
 	}
 	if cfg.Path == "" {
 		cfg.Path = "/v1/chat/completions"
@@ -151,6 +160,9 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, cfg Config, messages 
 	payload := map[string]any{"model": cfg.Model, "messages": messages}
 	if cfg.Temperature != 0 {
 		payload["temperature"] = cfg.Temperature
+	}
+	if cfg.MaxTokens > 0 {
+		payload["max_tokens"] = cfg.MaxTokens
 	}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
@@ -201,10 +213,36 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, cfg Config, messages 
 	}, nil
 }
 
+// pickModel — модель не задана: берём уже загруженную LLM, иначе первую доступную (LM Studio загрузит её сам).
+func (c *Client) pickModel(ctx context.Context, cfg Config) (string, error) {
+	st, err := c.Status(ctx, cfg)
+	if err != nil {
+		return "", err
+	}
+	fallback := ""
+	for _, m := range st.Models {
+		if strings.Contains(strings.ToLower(m.Type+" "+m.Key), "embed") {
+			continue
+		}
+		if m.Loaded {
+			return m.Key, nil
+		}
+		if fallback == "" {
+			fallback = m.Key
+		}
+	}
+	if fallback == "" {
+		return "", errors.New("у провайдера нет ни одной языковой модели")
+	}
+	return fallback, nil
+}
+
 func (c *Client) Status(ctx context.Context, cfg Config) (ProviderStatus, error) {
 	st := ProviderStatus{BaseURL: cfg.BaseURL, SelectedModel: cfg.Model}
 	if strings.ToLower(cfg.Mode) == "mock" || cfg.Mode == "" {
 		loaded := true
+		st.SelectedModel = "mock-stalker"
+		st.Note = "mock: ответы без модели"
 		st.Online = true
 		st.ModelFound = true
 		st.ModelLoaded = &loaded
